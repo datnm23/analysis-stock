@@ -1,0 +1,377 @@
+{
+  "name": "Error Handler Workflow",
+  "nodes": [
+    {
+      "parameters": {},
+      "name": "Error Trigger",
+      "type": "n8n-nodes-base.errorTrigger",
+      "typeVersion": 1,
+      "position": [250, 300],
+      "id": "error-trigger"
+    },
+    {
+      "parameters": {
+        "functionCode": "// Classify error type and determine action\nconst error = $json;\nconst errorMessage = error.message || error.error || JSON.stringify(error);\nconst workflow = error.workflow?.name || 'Unknown';\nconst node = error.node?.name || 'Unknown';\nconst timestamp = new Date().toISOString();\n\n// Error classification\nlet errorType = 'UNKNOWN';\nlet severity = 'medium';\nlet retryable = false;\nlet retryDelay = 0;\n\n// Timeout errors\nif (errorMessage.includes('timeout') || errorMessage.includes('ETIMEDOUT')) {\n  errorType = 'TIMEOUT';\n  severity = 'warning';\n  retryable = true;\n  retryDelay = 300000; // 5 minutes\n}\n// Rate limit errors\nelse if (errorMessage.includes('429') || errorMessage.includes('rate limit') || errorMessage.includes('too many')) {\n  errorType = 'RATE_LIMIT';\n  severity = 'warning';\n  retryable = true;\n  retryDelay = 3600000; // 1 hour\n}\n// Connection errors\nelse if (errorMessage.includes('ECONNREFUSED') || errorMessage.includes('ENOTFOUND') || errorMessage.includes('connection')) {\n  errorType = 'CONNECTION';\n  severity = 'high';\n  retryable = true;\n  retryDelay = 600000; // 10 minutes\n}\n// Parse errors\nelse if (errorMessage.includes('parse') || errorMessage.includes('JSON') || errorMessage.includes('XML')) {\n  errorType = 'PARSE_ERROR';\n  severity = 'medium';\n  retryable = false;\n}\n// Authentication errors\nelse if (errorMessage.includes('401') || errorMessage.includes('403') || errorMessage.includes('auth')) {\n  errorType = 'AUTH_ERROR';\n  severity = 'critical';\n  retryable = false;\n}\n// Server errors\nelse if (errorMessage.includes('500') || errorMessage.includes('502') || errorMessage.includes('503')) {\n  errorType = 'SERVER_ERROR';\n  severity = 'high';\n  retryable = true;\n  retryDelay = 600000; // 10 minutes\n}\n\nreturn [{\n  json: {\n    errorType,\n    severity,\n    retryable,\n    retryDelay,\n    workflow,\n    node,\n    message: errorMessage,\n    timestamp,\n    raw: error\n  }\n}];"
+      },
+      "name": "Classify Error",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [450, 300],
+      "id": "classify-error"
+    },
+    {
+      "parameters": {
+        "operation": "lpush",
+        "key": "=errors:{{$json.errorType}}:{{$now.format('YYYY-MM-DD')}}",
+        "value": "={{JSON.stringify($json)}}"
+      },
+      "name": "Log to Redis",
+      "type": "n8n-nodes-base.redis",
+      "typeVersion": 1,
+      "position": [650, 300],
+      "id": "log-redis",
+      "credentials": {
+        "redis": {
+          "id": "3",
+          "name": "Redis"
+        }
+      },
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "operation": "incr",
+        "key": "=metrics:errors:{{$json.errorType}}:{{$now.format('YYYY-MM-DD')}}"
+      },
+      "name": "Increment Error Counter",
+      "type": "n8n-nodes-base.redis",
+      "typeVersion": 1,
+      "position": [850, 300],
+      "id": "incr-error",
+      "credentials": {
+        "redis": {
+          "id": "3",
+          "name": "Redis"
+        }
+      },
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "string": [
+            {
+              "value1": "={{$json.severity}}",
+              "operation": "equals",
+              "value2": "critical"
+            }
+          ]
+        }
+      },
+      "name": "If Critical",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [1050, 200],
+      "id": "if-critical"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "string": [
+            {
+              "value1": "={{$json.severity}}",
+              "operation": "equals",
+              "value2": "high"
+            }
+          ]
+        }
+      },
+      "name": "If High Severity",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [1050, 400],
+      "id": "if-high"
+    },
+    {
+      "parameters": {
+        "chatId": "@vnstock_urgent_alerts",
+        "text": "🚨 *CRITICAL ERROR*\n\n*Workflow:* {{$json.workflow}}\n*Node:* {{$json.node}}\n*Type:* {{$json.errorType}}\n*Time:* {{$json.timestamp}}\n\n*Error:* {{$json.message}}\n\n⚠️ Immediate attention required!",
+        "additionalFields": {
+          "parse_mode": "Markdown"
+        }
+      },
+      "name": "Send Critical Alert",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1,
+      "position": [1250, 100],
+      "id": "send-critical",
+      "credentials": {
+        "telegramApi": {
+          "id": "2",
+          "name": "Telegram Bot"
+        }
+      },
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "chatId": "@vnstock_alerts",
+        "text": "⚠️ *High Severity Error*\n\n*Workflow:* {{$json.workflow}}\n*Node:* {{$json.node}}\n*Type:* {{$json.errorType}}\n\n*Error:* {{$json.message}}",
+        "additionalFields": {
+          "parse_mode": "Markdown"
+        }
+      },
+      "name": "Send High Severity Alert",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1,
+      "position": [1250, 300],
+      "id": "send-high",
+      "credentials": {
+        "telegramApi": {
+          "id": "2",
+          "name": "Telegram Bot"
+        }
+      },
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "boolean": [
+            {
+              "value1": "={{$json.retryable}}",
+              "value2": true
+            }
+          ]
+        }
+      },
+      "name": "If Retryable",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [1450, 300],
+      "id": "if-retryable"
+    },
+    {
+      "parameters": {
+        "operation": "lpush",
+        "key": "retry:queue",
+        "value": "={{JSON.stringify({ workflow: $json.workflow, retryAt: new Date(Date.now() + $json.retryDelay).toISOString(), error: $json })}}"
+      },
+      "name": "Add to Retry Queue",
+      "type": "n8n-nodes-base.redis",
+      "typeVersion": 1,
+      "position": [1650, 200],
+      "id": "retry-queue",
+      "credentials": {
+        "redis": {
+          "id": "3",
+          "name": "Redis"
+        }
+      },
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "operation": "lpush",
+        "key": "deadletter:queue",
+        "value": "={{JSON.stringify($json)}}"
+      },
+      "name": "Add to Dead Letter Queue",
+      "type": "n8n-nodes-base.redis",
+      "typeVersion": 1,
+      "position": [1650, 400],
+      "id": "dlq",
+      "credentials": {
+        "redis": {
+          "id": "3",
+          "name": "Redis"
+        }
+      },
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "functionCode": "// Generate daily error summary\nconst date = $now.format('YYYY-MM-DD');\nconst error = $json;\n\nreturn [{\n  json: {\n    processed: true,\n    errorType: error.errorType,\n    severity: error.severity,\n    retryScheduled: error.retryable,\n    timestamp: new Date().toISOString()\n  }\n}];"
+      },
+      "name": "Finalize",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [1850, 300],
+      "id": "finalize"
+    }
+  ],
+  "connections": {
+    "Error Trigger": {
+      "main": [
+        [
+          {
+            "node": "Classify Error",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Classify Error": {
+      "main": [
+        [
+          {
+            "node": "Log to Redis",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log to Redis": {
+      "main": [
+        [
+          {
+            "node": "Increment Error Counter",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Increment Error Counter": {
+      "main": [
+        [
+          {
+            "node": "If Critical",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "If High Severity",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If Critical": {
+      "main": [
+        [
+          {
+            "node": "Send Critical Alert",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "If Retryable",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If High Severity": {
+      "main": [
+        [
+          {
+            "node": "Send High Severity Alert",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "If Retryable",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Critical Alert": {
+      "main": [
+        [
+          {
+            "node": "If Retryable",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send High Severity Alert": {
+      "main": [
+        [
+          {
+            "node": "If Retryable",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If Retryable": {
+      "main": [
+        [
+          {
+            "node": "Add to Retry Queue",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Add to Dead Letter Queue",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Add to Retry Queue": {
+      "main": [
+        [
+          {
+            "node": "Finalize",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Add to Dead Letter Queue": {
+      "main": [
+        [
+          {
+            "node": "Finalize",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "Asia/Ho_Chi_Minh",
+    "saveManualExecutions": true,
+    "saveDataErrorExecution": "all",
+    "saveDataSuccessExecution": "all"
+  },
+  "staticData": null,
+  "tags": [
+    {
+      "name": "error-handling",
+      "createdAt": "2026-01-29T00:00:00.000Z",
+      "updatedAt": "2026-01-29T00:00:00.000Z",
+      "id": "3"
+    },
+    {
+      "name": "system",
+      "createdAt": "2026-01-29T00:00:00.000Z",
+      "updatedAt": "2026-01-29T00:00:00.000Z",
+      "id": "4"
+    }
+  ],
+  "triggerCount": 0,
+  "updatedAt": "2026-01-29T00:00:00.000Z",
+  "versionId": "1"
+}

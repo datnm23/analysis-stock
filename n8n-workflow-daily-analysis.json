@@ -1,0 +1,944 @@
+{
+  "name": "Vietnamese Stock Market Daily Analysis (Enhanced)",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 8 * * 1-5"
+            }
+          ]
+        }
+      },
+      "name": "Daily Trigger 8AM (Weekdays)",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1,
+      "position": [250, 300],
+      "id": "trigger-daily-8am"
+    },
+    {
+      "parameters": {
+        "functionCode": "// Check if Vietnamese market is open (weekday, not holiday)\nconst now = new Date();\nconst vietnamTime = new Date(now.toLocaleString('en-US', { timeZone: 'Asia/Ho_Chi_Minh' }));\nconst dayOfWeek = vietnamTime.getDay();\n\n// Skip weekends\nif (dayOfWeek === 0 || dayOfWeek === 6) {\n  return [{ json: { skip: true, reason: 'Weekend - market closed' } }];\n}\n\n// Vietnamese holidays 2026 (add more as needed)\nconst holidays = [\n  '2026-01-01', // New Year\n  '2026-01-29', '2026-01-30', '2026-01-31', '2026-02-01', '2026-02-02', // Tet\n  '2026-04-30', // Reunification Day\n  '2026-05-01', // Labor Day\n  '2026-09-02', // National Day\n];\n\nconst dateStr = vietnamTime.toISOString().split('T')[0];\nif (holidays.includes(dateStr)) {\n  return [{ json: { skip: true, reason: `Holiday: ${dateStr}` } }];\n}\n\nreturn [{ json: { skip: false, date: dateStr, timestamp: now.toISOString() } }];"
+      },
+      "name": "Check Market Hours",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [450, 300],
+      "id": "check-market-hours"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "boolean": [
+            {
+              "value1": "={{$json.skip}}",
+              "value2": false
+            }
+          ]
+        }
+      },
+      "name": "If Market Open",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [650, 300],
+      "id": "if-market-open"
+    },
+    {
+      "parameters": {
+        "functionCode": "const sources = [\n  {\n    name: 'VnEconomy',\n    rss: 'https://vneconomy.vn/rss/chung-khoan.rss',\n    priority: 'high',\n    reliability: 0.9\n  },\n  {\n    name: 'CafeF',\n    rss: 'https://cafef.vn/chung-khoan.rss',\n    priority: 'high',\n    reliability: 0.85\n  },\n  {\n    name: 'VietStock',\n    rss: 'https://vietstock.vn/chung-khoan.rss',\n    priority: 'medium',\n    reliability: 0.8\n  },\n  {\n    name: 'DauTu',\n    rss: 'https://ndh.vn/chung-khoan.rss',\n    priority: 'medium',\n    reliability: 0.75\n  }\n];\n\nreturn sources.map(source => ({ json: source }));"
+      },
+      "name": "Get News Sources",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [850, 200],
+      "id": "get-news-sources"
+    },
+    {
+      "parameters": {
+        "batchSize": 1,
+        "options": {}
+      },
+      "name": "Split Sources",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 2,
+      "position": [1050, 200],
+      "id": "split-sources"
+    },
+    {
+      "parameters": {
+        "url": "={{$json.rss}}",
+        "options": {
+          "timeout": 10000,
+          "redirect": {
+            "redirect": {
+              "followRedirects": true,
+              "maxRedirects": 5
+            }
+          }
+        },
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "User-Agent",
+              "value": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+            },
+            {
+              "name": "Accept",
+              "value": "application/rss+xml, application/xml, text/xml, */*"
+            },
+            {
+              "name": "Accept-Language",
+              "value": "vi-VN,vi;q=0.9,en;q=0.8"
+            }
+          ]
+        }
+      },
+      "name": "Fetch RSS Feed",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [1250, 200],
+      "id": "fetch-rss",
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "functionCode": "// Retry logic with exponential backoff\nconst MAX_RETRIES = 3;\nconst input = $input.first();\n\nif (input.json.error) {\n  const retryCount = input.json.retryCount || 0;\n  \n  if (retryCount < MAX_RETRIES) {\n    // Schedule retry\n    return [{\n      json: {\n        ...input.json,\n        retryCount: retryCount + 1,\n        retryDelayMs: Math.pow(2, retryCount) * 1000, // 1s, 2s, 4s\n        needsRetry: true\n      }\n    }];\n  } else {\n    // Max retries reached, log error\n    return [{\n      json: {\n        source: input.json.name || 'unknown',\n        error: input.json.error,\n        status: 'failed',\n        retryCount: retryCount,\n        timestamp: new Date().toISOString()\n      }\n    }];\n  }\n}\n\n// Success\nreturn [{\n  json: {\n    ...input.json,\n    status: 'success',\n    needsRetry: false\n  }\n}];"
+      },
+      "name": "Handle Retry Logic",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [1450, 200],
+      "id": "handle-retry"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "boolean": [
+            {
+              "value1": "={{$json.needsRetry}}",
+              "value2": true
+            }
+          ]
+        }
+      },
+      "name": "If Needs Retry",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [1650, 200],
+      "id": "if-needs-retry"
+    },
+    {
+      "parameters": {
+        "amount": "={{$json.retryDelayMs}}",
+        "unit": "milliseconds"
+      },
+      "name": "Wait Before Retry",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1,
+      "position": [1850, 100],
+      "id": "wait-retry"
+    },
+    {
+      "parameters": {
+        "amount": 2000,
+        "unit": "milliseconds"
+      },
+      "name": "Rate Limit Wait (2s)",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1,
+      "position": [1850, 300],
+      "id": "rate-limit-wait"
+    },
+    {
+      "parameters": {
+        "functionCode": "const items = $input.all();\nconst parser = new DOMParser();\nconst crypto = require('crypto');\n\nconst articles = [];\nconst errors = [];\n\n// Enhanced spam keywords (Vietnamese)\nconst spamKeywords = [\n  // Promotional\n  'khuyến mại', 'đăng ký ngay', 'cơ hội vàng', 'click ngay',\n  'nhận quà', 'giảm giá sốc', 'miễn phí 100%',\n  // Scam indicators\n  'lùa gà', 'pump', 'group vip', 'room kín',\n  'đánh lên', 'chắc thắng', 'x2 x3',\n  // Low quality\n  'theo dõi kênh', 'subscribe', 'like share'\n];\n\n// Spam patterns\nconst spamPatterns = [\n  /lợi nhuận \\d+%/i,\n  /tăng \\d+x trong/i,\n  /nhóm (vip|kín|riêng)/i,\n  /zalo:?\\s*\\d{10,11}/i\n];\n\nfor (const item of items) {\n  if (item.json.status === 'failed') {\n    errors.push(item.json);\n    continue;\n  }\n\n  try {\n    const xmlDoc = parser.parseFromString(item.json.data || '', 'text/xml');\n    const entries = xmlDoc.querySelectorAll('item');\n    \n    entries.forEach(entry => {\n      const title = entry.querySelector('title')?.textContent?.trim() || '';\n      const description = entry.querySelector('description')?.textContent?.trim() || '';\n      const link = entry.querySelector('link')?.textContent?.trim() || '';\n      const pubDate = entry.querySelector('pubDate')?.textContent?.trim() || '';\n      \n      // Validation: Required fields\n      if (!title || !link) return;\n      \n      // Validation: Title length (10-500 chars)\n      if (title.length < 10 || title.length > 500) return;\n      \n      // Validation: Not future date\n      const articleDate = new Date(pubDate);\n      if (articleDate > new Date()) return;\n      \n      // Validation: Not older than 7 days\n      const sevenDaysAgo = new Date();\n      sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);\n      if (articleDate < sevenDaysAgo) return;\n      \n      // Spam filtering: Keywords\n      const textToCheck = (title + ' ' + description).toLowerCase();\n      const isSpamKeyword = spamKeywords.some(kw => textToCheck.includes(kw));\n      if (isSpamKeyword) return;\n      \n      // Spam filtering: Patterns\n      const isSpamPattern = spamPatterns.some(pattern => pattern.test(textToCheck));\n      if (isSpamPattern) return;\n      \n      // Generate deduplication hash\n      const dedupContent = `${item.json.name}:${title}:${pubDate}`;\n      const dedupHash = crypto.createHash('md5').update(dedupContent).digest('hex');\n      \n      articles.push({\n        json: {\n          source: item.json.name,\n          sourceReliability: item.json.reliability || 0.8,\n          title,\n          description,\n          link,\n          pubDate,\n          dedupHash,\n          timestamp: new Date().toISOString()\n        }\n      });\n    });\n  } catch (error) {\n    errors.push({\n      source: item.json.name,\n      error: error.message,\n      timestamp: new Date().toISOString()\n    });\n  }\n}\n\n// Log errors for monitoring\nif (errors.length > 0) {\n  console.log('Parse errors:', JSON.stringify(errors));\n}\n\nreturn articles;"
+      },
+      "name": "Parse & Filter News (Enhanced)",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [2050, 300],
+      "id": "parse-filter-news"
+    },
+    {
+      "parameters": {
+        "operation": "get",
+        "key": "=dedup:news:{{$json.dedupHash}}"
+      },
+      "name": "Check Dedup (Redis)",
+      "type": "n8n-nodes-base.redis",
+      "typeVersion": 1,
+      "position": [2250, 300],
+      "id": "check-dedup",
+      "credentials": {
+        "redis": {
+          "id": "3",
+          "name": "Redis"
+        }
+      },
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "string": [
+            {
+              "value1": "={{$json.value}}",
+              "operation": "isEmpty"
+            }
+          ]
+        }
+      },
+      "name": "If Not Duplicate",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [2450, 300],
+      "id": "if-not-duplicate"
+    },
+    {
+      "parameters": {
+        "operation": "set",
+        "key": "=dedup:news:{{$json.dedupHash}}",
+        "value": "1",
+        "expire": true,
+        "ttl": 604800
+      },
+      "name": "Set Dedup Key (Redis)",
+      "type": "n8n-nodes-base.redis",
+      "typeVersion": 1,
+      "position": [2650, 200],
+      "id": "set-dedup",
+      "credentials": {
+        "redis": {
+          "id": "3",
+          "name": "Redis"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "incr",
+        "key": "=metrics:duplicates:{{$now.format('YYYY-MM-DD')}}"
+      },
+      "name": "Count Duplicate (Metrics)",
+      "type": "n8n-nodes-base.redis",
+      "typeVersion": 1,
+      "position": [2650, 400],
+      "id": "count-duplicate",
+      "credentials": {
+        "redis": {
+          "id": "3",
+          "name": "Redis"
+        }
+      },
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "operation": "upload",
+        "bucketName": "vnstock-data",
+        "fileName": "=raw/news/year={{$now.format('YYYY')}}/month={{$now.format('MM')}}/day={{$now.format('DD')}}/{{$json.source}}/{{$now.format('HH-mm-ss')}}.json",
+        "binaryData": false,
+        "additionalFields": {
+          "contentType": "application/json"
+        }
+      },
+      "name": "Save to S3 Raw Data",
+      "type": "n8n-nodes-base.awsS3",
+      "typeVersion": 1,
+      "position": [2850, 200],
+      "id": "save-s3-raw",
+      "credentials": {
+        "aws": {
+          "id": "1",
+          "name": "AWS Account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "functionCode": "// Extract stock symbols from all news articles\nconst items = $input.all();\nconst symbolCounts = {};\nconst symbolSources = {};\n\n// Valid Vietnamese stock symbols (expand this list)\nconst validSymbols = new Set([\n  'VNM', 'HPG', 'VCB', 'VHM', 'VIC', 'FPT', 'MSN', 'MBB', 'TCB', 'BID',\n  'CTG', 'VPB', 'GVR', 'SAB', 'PLX', 'GAS', 'VJC', 'MWG', 'POW', 'VRE',\n  'ACB', 'STB', 'NVL', 'VND', 'SSI', 'HDB', 'TPB', 'EIB', 'SHB', 'LPB',\n  'PDR', 'KDH', 'DIG', 'DXG', 'NLG', 'HDG', 'IJC', 'BCG', 'CEO', 'HBC',\n  'DPM', 'DCM', 'PVD', 'PVS', 'BSR', 'OIL', 'PVT', 'PVB', 'VSH', 'REE'\n]);\n\nconst symbolRegex = /\\b[A-Z]{3}\\b/g;\n\nitems.forEach(item => {\n  const text = (item.json.title + ' ' + item.json.description).toUpperCase();\n  const matches = text.match(symbolRegex) || [];\n  const source = item.json.source;\n  const reliability = item.json.sourceReliability || 0.8;\n  \n  matches.forEach(symbol => {\n    if (validSymbols.has(symbol)) {\n      // Weighted count based on source reliability\n      symbolCounts[symbol] = (symbolCounts[symbol] || 0) + reliability;\n      \n      // Track sources\n      if (!symbolSources[symbol]) symbolSources[symbol] = [];\n      symbolSources[symbol].push(source);\n    }\n  });\n});\n\n// Get top 10 hot stocks\nconst hotStocks = Object.entries(symbolCounts)\n  .sort((a, b) => b[1] - a[1])\n  .slice(0, 10)\n  .map(([symbol, weightedCount]) => ({\n    json: {\n      symbol,\n      weightedMentions: weightedCount.toFixed(2),\n      rawMentions: symbolSources[symbol]?.length || 0,\n      sources: [...new Set(symbolSources[symbol] || [])],\n      date: $now.format('YYYY-MM-DD')\n    }\n  }));\n\nreturn hotStocks.length > 0 ? hotStocks : [{ json: { noHotStocks: true } }];"
+      },
+      "name": "Detect Hot Stocks (Weighted)",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [3050, 200],
+      "id": "detect-hot-stocks"
+    },
+    {
+      "parameters": {
+        "operation": "incr",
+        "key": "=metrics:articles:{{$now.format('YYYY-MM-DD')}}:{{$json.source}}"
+      },
+      "name": "Update Article Metrics",
+      "type": "n8n-nodes-base.redis",
+      "typeVersion": 1,
+      "position": [2850, 400],
+      "id": "update-metrics",
+      "credentials": {
+        "redis": {
+          "id": "3",
+          "name": "Redis"
+        }
+      },
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "boolean": [
+            {
+              "value1": "={{$json.noHotStocks}}",
+              "value2": true,
+              "operation": "notEqual"
+            }
+          ]
+        }
+      },
+      "name": "If Has Hot Stocks",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [3250, 200],
+      "id": "if-has-hot-stocks"
+    },
+    {
+      "parameters": {
+        "batchSize": 1,
+        "options": {}
+      },
+      "name": "Split Stocks",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 2,
+      "position": [3450, 100],
+      "id": "split-stocks"
+    },
+    {
+      "parameters": {
+        "amount": 2000,
+        "unit": "milliseconds"
+      },
+      "name": "Rate Limit Stocks (2s)",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1,
+      "position": [3650, 100],
+      "id": "rate-limit-stocks"
+    },
+    {
+      "parameters": {
+        "url": "http://agent-service:8000/api/market/data",
+        "method": "POST",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"symbol\": \"{{$json.symbol}}\",\n  \"days\": 90\n}",
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "name": "Fetch Market Data",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [3850, 100],
+      "id": "fetch-market-data",
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "url": "http://agent-service:8000/api/analyze/technical",
+        "method": "POST",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"symbol\": \"{{$json.symbol}}\",\n  \"data\": {{JSON.stringify($json.market_data || {})}}\n}",
+        "options": {
+          "timeout": 60000
+        }
+      },
+      "name": "Technical Analysis Agent",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [4050, 0],
+      "id": "technical-agent",
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "url": "http://agent-service:8000/api/analyze/sentiment",
+        "method": "POST",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"symbol\": \"{{$json.symbol}}\",\n  \"news_data\": {{JSON.stringify($node['Parse & Filter News (Enhanced)'].json || {})}}\n}",
+        "options": {
+          "timeout": 60000
+        }
+      },
+      "name": "Sentiment Analysis Agent",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [4050, 200],
+      "id": "sentiment-agent",
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "functionCode": "// Combine results from both agents\nconst technicalData = $node['Technical Analysis Agent'].json || { error: 'No data' };\nconst sentimentData = $node['Sentiment Analysis Agent'].json || { error: 'No data' };\nconst symbol = $json.symbol;\n\n// Handle errors gracefully\nconst hasTechnicalError = technicalData.error !== undefined;\nconst hasSentimentError = sentimentData.error !== undefined;\n\nconst combined = {\n  json: {\n    symbol,\n    date: $now.format('YYYY-MM-DD'),\n    technical: hasTechnicalError ? null : technicalData,\n    sentiment: hasSentimentError ? null : sentimentData,\n    errors: {\n      technical: hasTechnicalError ? technicalData.error : null,\n      sentiment: hasSentimentError ? sentimentData.error : null\n    },\n    hasErrors: hasTechnicalError || hasSentimentError,\n    timestamp: new Date().toISOString()\n  }\n};\n\nreturn [combined];"
+      },
+      "name": "Combine Analysis Results",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [4250, 100],
+      "id": "combine-results"
+    },
+    {
+      "parameters": {
+        "url": "http://agent-service:8000/api/synthesize",
+        "method": "POST",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{JSON.stringify($json)}}",
+        "options": {
+          "timeout": 60000
+        }
+      },
+      "name": "Master Agent Synthesis",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [4450, 100],
+      "id": "master-agent",
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "operation": "upload",
+        "bucketName": "vnstock-data",
+        "fileName": "=reports/daily/{{$now.format('YYYY-MM-DD')}}/{{$json.symbol}}.json",
+        "binaryData": false
+      },
+      "name": "Save Final Report to S3",
+      "type": "n8n-nodes-base.awsS3",
+      "typeVersion": 1,
+      "position": [4650, 0],
+      "id": "save-final-report",
+      "credentials": {
+        "aws": {
+          "id": "1",
+          "name": "AWS Account"
+        }
+      },
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "functionCode": "// Generate Markdown report with error handling\nconst data = $json;\n\nif (!data || !data.symbol) {\n  return [{ json: { markdown: '❌ Error: No data available', symbol: 'unknown' } }];\n}\n\nlet markdown = `# 📊 Báo Cáo Phân Tích: ${data.symbol}\\n\\n`;\nmarkdown += `**Ngày:** ${data.date || $now.format('YYYY-MM-DD')}\\n`;\n\nif (data.technical?.current_price) {\n  markdown += `**Giá hiện tại:** ${data.technical.current_price.toLocaleString('vi-VN')} VND\\n\\n`;\n}\n\n// Recommendation\nif (data.recommendation) {\n  markdown += `## 📌 Khuyến Nghị\\n\\n`;\n  markdown += `**${data.recommendation}** (Độ tin cậy: ${((data.confidence || 0) * 100).toFixed(1)}%)\\n\\n`;\n}\n\n// Technical Analysis\nif (data.technical?.signals) {\n  markdown += `## 📈 Phân Tích Kỹ Thuật\\n\\n`;\n  data.technical.signals.forEach(signal => {\n    markdown += `- ${signal}\\n`;\n  });\n  markdown += '\\n';\n}\n\n// Sentiment Analysis\nif (data.sentiment) {\n  markdown += `## 💭 Tâm Lý Thị Trường\\n\\n`;\n  if (data.sentiment.overall_score !== undefined) {\n    markdown += `- Điểm tổng thể: ${data.sentiment.overall_score.toFixed(2)}\\n`;\n  }\n  if (data.sentiment.positive_ratio !== undefined) {\n    markdown += `- Tích cực: ${(data.sentiment.positive_ratio * 100).toFixed(1)}%\\n`;\n  }\n  if (data.sentiment.negative_ratio !== undefined) {\n    markdown += `- Tiêu cực: ${(data.sentiment.negative_ratio * 100).toFixed(1)}%\\n`;\n  }\n  markdown += '\\n';\n}\n\n// Errors\nif (data.hasErrors && data.errors) {\n  markdown += `## ⚠️ Lưu Ý\\n\\n`;\n  if (data.errors.technical) {\n    markdown += `- Lỗi phân tích kỹ thuật: ${data.errors.technical}\\n`;\n  }\n  if (data.errors.sentiment) {\n    markdown += `- Lỗi phân tích tâm lý: ${data.errors.sentiment}\\n`;\n  }\n  markdown += '\\n';\n}\n\nmarkdown += `---\\n\\n`;\nmarkdown += `*Lưu ý: Đây chỉ là thông tin tham khảo, không phải lời khuyên đầu tư*\\n`;\nmarkdown += `*Cập nhật: ${new Date().toLocaleString('vi-VN', { timeZone: 'Asia/Ho_Chi_Minh' })}*\\n`;\n\nreturn [{ json: { markdown, symbol: data.symbol } }];"
+      },
+      "name": "Generate Markdown Report",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [4650, 200],
+      "id": "generate-markdown"
+    },
+    {
+      "parameters": {
+        "chatId": "@vnstock_alerts",
+        "text": "={{$json.markdown}}",
+        "additionalFields": {
+          "parse_mode": "Markdown",
+          "disable_web_page_preview": true
+        }
+      },
+      "name": "Send to Telegram Channel",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1,
+      "position": [4850, 100],
+      "id": "send-telegram",
+      "credentials": {
+        "telegramApi": {
+          "id": "2",
+          "name": "Telegram Bot"
+        }
+      },
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "functionCode": "// Check for alerts and urgent conditions\nconst data = $json;\n\nconst alerts = [];\n\n// HIGH RISK alert\nif (data.risk_level === 'HIGH' || data.recommendation === 'STRONG SELL') {\n  alerts.push({\n    json: {\n      type: 'HIGH_RISK_ALERT',\n      priority: 'critical',\n      symbol: data.symbol,\n      message: `⚠️ CẢNH BÁO: ${data.symbol} có mức rủi ro cao!\\n\\nKhuyến nghị: ${data.recommendation}\\nĐộ tin cậy: ${((data.confidence || 0) * 100).toFixed(1)}%`,\n      details: data\n    }\n  });\n}\n\n// Rumor detection\nif (data.sentiment?.detected_rumors?.length > 0) {\n  alerts.push({\n    json: {\n      type: 'RUMOR_DETECTED',\n      priority: 'high',\n      symbol: data.symbol,\n      message: `🚨 ${data.symbol}: Phát hiện tin đồn trên MXH!\\n\\nSố tin đồn: ${data.sentiment.detected_rumors.length}`,\n      details: data\n    }\n  });\n}\n\n// STRONG BUY signal (opportunity alert)\nif (data.recommendation === 'STRONG BUY' && data.confidence > 0.8) {\n  alerts.push({\n    json: {\n      type: 'OPPORTUNITY_ALERT',\n      priority: 'medium',\n      symbol: data.symbol,\n      message: `✅ ${data.symbol}: Tín hiệu mua mạnh!\\n\\nĐộ tin cậy: ${((data.confidence || 0) * 100).toFixed(1)}%`,\n      details: data\n    }\n  });\n}\n\nreturn alerts.length > 0 ? alerts : [];"
+      },
+      "name": "Check for Alerts",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [4650, 400],
+      "id": "check-alerts"
+    },
+    {
+      "parameters": {
+        "chatId": "@vnstock_urgent_alerts",
+        "text": "={{$json.message}}\n\n📅 {{$now.format('YYYY-MM-DD HH:mm')}}",
+        "additionalFields": {
+          "parse_mode": "Markdown"
+        }
+      },
+      "name": "Send Urgent Alert",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1,
+      "position": [4850, 400],
+      "id": "send-urgent-alert",
+      "credentials": {
+        "telegramApi": {
+          "id": "2",
+          "name": "Telegram Bot"
+        }
+      },
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "operation": "upload",
+        "bucketName": "vnstock-data",
+        "fileName": "=reports/daily/{{$now.format('YYYY-MM-DD')}}/summary.md",
+        "binaryData": false
+      },
+      "name": "Save Summary Report",
+      "type": "n8n-nodes-base.awsS3",
+      "typeVersion": 1,
+      "position": [4850, 200],
+      "id": "save-summary",
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "functionCode": "// Generate daily summary metrics\nconst date = $now.format('YYYY-MM-DD');\n\nreturn [{\n  json: {\n    type: 'CRAWL_COMPLETE',\n    date,\n    message: `✅ Hoàn thành phân tích ngày ${date}`,\n    timestamp: new Date().toISOString()\n  }\n}];"
+      },
+      "name": "Generate Completion Summary",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [5050, 100],
+      "id": "completion-summary"
+    },
+    {
+      "parameters": {
+        "operation": "set",
+        "key": "=crawl:lastSuccess:daily",
+        "value": "={{new Date().toISOString()}}",
+        "expire": true,
+        "ttl": 172800
+      },
+      "name": "Update Last Crawl Time",
+      "type": "n8n-nodes-base.redis",
+      "typeVersion": 1,
+      "position": [5250, 100],
+      "id": "update-last-crawl",
+      "credentials": {
+        "redis": {
+          "id": "3",
+          "name": "Redis"
+        }
+      },
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "functionCode": "// Log skip reason and notify if needed\nconst reason = $json.reason || 'Unknown reason';\n\nconsole.log(`Skipping daily analysis: ${reason}`);\n\nreturn [{\n  json: {\n    type: 'CRAWL_SKIPPED',\n    reason,\n    timestamp: new Date().toISOString()\n  }\n}];"
+      },
+      "name": "Log Skip Reason",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [850, 400],
+      "id": "log-skip"
+    }
+  ],
+  "connections": {
+    "Daily Trigger 8AM (Weekdays)": {
+      "main": [
+        [
+          {
+            "node": "Check Market Hours",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Market Hours": {
+      "main": [
+        [
+          {
+            "node": "If Market Open",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If Market Open": {
+      "main": [
+        [
+          {
+            "node": "Get News Sources",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Log Skip Reason",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get News Sources": {
+      "main": [
+        [
+          {
+            "node": "Split Sources",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Split Sources": {
+      "main": [
+        [
+          {
+            "node": "Fetch RSS Feed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch RSS Feed": {
+      "main": [
+        [
+          {
+            "node": "Handle Retry Logic",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Handle Retry Logic": {
+      "main": [
+        [
+          {
+            "node": "If Needs Retry",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If Needs Retry": {
+      "main": [
+        [
+          {
+            "node": "Wait Before Retry",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Rate Limit Wait (2s)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait Before Retry": {
+      "main": [
+        [
+          {
+            "node": "Fetch RSS Feed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Rate Limit Wait (2s)": {
+      "main": [
+        [
+          {
+            "node": "Split Sources",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Parse & Filter News (Enhanced)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse & Filter News (Enhanced)": {
+      "main": [
+        [
+          {
+            "node": "Check Dedup (Redis)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Dedup (Redis)": {
+      "main": [
+        [
+          {
+            "node": "If Not Duplicate",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If Not Duplicate": {
+      "main": [
+        [
+          {
+            "node": "Set Dedup Key (Redis)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Count Duplicate (Metrics)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Set Dedup Key (Redis)": {
+      "main": [
+        [
+          {
+            "node": "Save to S3 Raw Data",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Update Article Metrics",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Save to S3 Raw Data": {
+      "main": [
+        [
+          {
+            "node": "Detect Hot Stocks (Weighted)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Detect Hot Stocks (Weighted)": {
+      "main": [
+        [
+          {
+            "node": "If Has Hot Stocks",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If Has Hot Stocks": {
+      "main": [
+        [
+          {
+            "node": "Split Stocks",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Generate Completion Summary",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Split Stocks": {
+      "main": [
+        [
+          {
+            "node": "Rate Limit Stocks (2s)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Rate Limit Stocks (2s)": {
+      "main": [
+        [
+          {
+            "node": "Fetch Market Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Market Data": {
+      "main": [
+        [
+          {
+            "node": "Technical Analysis Agent",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Sentiment Analysis Agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Technical Analysis Agent": {
+      "main": [
+        [
+          {
+            "node": "Combine Analysis Results",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Sentiment Analysis Agent": {
+      "main": [
+        [
+          {
+            "node": "Combine Analysis Results",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Combine Analysis Results": {
+      "main": [
+        [
+          {
+            "node": "Master Agent Synthesis",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Master Agent Synthesis": {
+      "main": [
+        [
+          {
+            "node": "Save Final Report to S3",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Generate Markdown Report",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Check for Alerts",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Generate Markdown Report": {
+      "main": [
+        [
+          {
+            "node": "Send to Telegram Channel",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Save Summary Report",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check for Alerts": {
+      "main": [
+        [
+          {
+            "node": "Send Urgent Alert",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send to Telegram Channel": {
+      "main": [
+        [
+          {
+            "node": "Generate Completion Summary",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Generate Completion Summary": {
+      "main": [
+        [
+          {
+            "node": "Update Last Crawl Time",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "errorWorkflow": "n8n-workflow-error-handler",
+    "timezone": "Asia/Ho_Chi_Minh",
+    "saveManualExecutions": true,
+    "saveDataErrorExecution": "all",
+    "saveDataSuccessExecution": "all"
+  },
+  "staticData": null,
+  "tags": [
+    {
+      "name": "stock-analysis",
+      "createdAt": "2026-01-28T00:00:00.000Z",
+      "updatedAt": "2026-01-29T00:00:00.000Z",
+      "id": "1"
+    },
+    {
+      "name": "production",
+      "createdAt": "2026-01-29T00:00:00.000Z",
+      "updatedAt": "2026-01-29T00:00:00.000Z",
+      "id": "2"
+    }
+  ],
+  "triggerCount": 1,
+  "updatedAt": "2026-01-29T00:00:00.000Z",
+  "versionId": "2"
+}
