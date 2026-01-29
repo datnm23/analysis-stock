@@ -1,0 +1,47 @@
+{
+  "slang_mappings": {
+    "lùa gà": {"meaning": "pump and dump scam", "sentiment_modifier": -0.3},
+    "cá mập": {"meaning": "whale/big investor", "sentiment_modifier": 0.0},
+    "gom hàng": {"meaning": "accumulating shares", "sentiment_modifier": 0.2},
+    "xả hàng": {"meaning": "dumping shares", "sentiment_modifier": -0.2},
+    "tay to": {"meaning": "major player", "sentiment_modifier": 0.0},
+    "đánh úp": {"meaning": "surprise dump", "sentiment_modifier": -0.3},
+    "bắt đáy": {"meaning": "catching the bottom", "sentiment_modifier": 0.1},
+    "cắt lỗ": {"meaning": "stop loss", "sentiment_modifier": -0.1},
+    "chốt lời": {"meaning": "take profit", "sentiment_modifier": 0.1},
+    "trần": {"meaning": "ceiling price", "sentiment_modifier": 0.2},
+    "sàn": {"meaning": "floor price", "sentiment_modifier": -0.2},
+    "xanh": {"meaning": "green/up", "sentiment_modifier": 0.1},
+    "đỏ": {"meaning": "red/down", "sentiment_modifier": -0.1},
+    "tím": {"meaning": "purple/limit up", "sentiment_modifier": 0.3},
+    "xanh lơ": {"meaning": "ceiling limit", "sentiment_modifier": 0.2},
+    "la liệt": {"meaning": "widespread red", "sentiment_modifier": -0.2},
+    "bơm thổi": {"meaning": "pump artificially", "sentiment_modifier": -0.2},
+    "mua đuổi": {"meaning": "chasing buy", "sentiment_modifier": 0.1},
+    "bán tháo": {"meaning": "panic sell", "sentiment_modifier": -0.3},
+    "đội lái": {"meaning": "market manipulator team", "sentiment_modifier": -0.2},
+    "giải chấp": {"meaning": "margin call", "sentiment_modifier": -0.3},
+    "cây thông": {"meaning": "bullish pattern", "sentiment_modifier": 0.2},
+    "con tép": {"meaning": "small investor", "sentiment_modifier": 0.0},
+    "hốt": {"meaning": "buy opportunity", "sentiment_modifier": 0.2},
+    "sideway": {"meaning": "sideways trend", "sentiment_modifier": 0.0},
+    "fomo": {"meaning": "fear of missing out", "sentiment_modifier": -0.1},
+    "về bờ": {"meaning": "break even", "sentiment_modifier": 0.1},
+    "lên tàu": {"meaning": "get in position", "sentiment_modifier": 0.1},
+    "xuống tàu": {"meaning": "exit position", "sentiment_modifier": -0.1}
+  },
+  "positive_keywords": [
+    "tăng", "lợi nhuận", "kỷ lục", "đột phá", "thắng lớn",
+    "doanh thu tăng", "tích cực", "triển vọng tốt", "mua mạnh",
+    "vượt kỳ vọng", "tăng trưởng", "cổ tức cao", "lạc quan",
+    "khuyến nghị mua", "tiềm năng", "hấp dẫn", "cơ hội",
+    "phục hồi", "bứt phá", "thu hút", "dòng tiền mạnh"
+  ],
+  "negative_keywords": [
+    "giảm", "thua lỗ", "sụt giảm", "bán tháo", "sập sàn",
+    "nợ xấu", "phá sản", "cảnh báo", "điều tra", "gian lận",
+    "thao túng", "vi phạm", "đình chỉ", "rủi ro", "thận trọng",
+    "suy yếu", "áp lực", "bất ổn", "khó khăn", "tiêu cực",
+    "hủy niêm yết", "kiện tụng", "thanh tra"
+  ]
+}

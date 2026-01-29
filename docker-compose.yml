@@ -1,6 +1,173 @@
 version: '3.8'
 
 services:
+  # ===========================================
+  # GO SERVICES (Hybrid Architecture)
+  # ===========================================
+
+  # Go API Gateway
+  api-gateway:
+    build:
+      context: ./go-services
+      dockerfile: ../docker/go.Dockerfile
+      args:
+        SERVICE: api-gateway
+    container_name: vnstock-api-gateway
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    environment:
+      - PORT=8080
+      - DB_HOST=postgres
+      - DB_PORT=5432
+      - DB_USER=vnstock
+      - DB_PASSWORD=${POSTGRES_PASSWORD}
+      - DB_NAME=vnstock
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - REDIS_PASSWORD=${REDIS_PASSWORD:-}
+      - SENTIMENT_SERVICE_URL=http://sentiment:8000
+      - TECHNICAL_SERVICE_URL=http://technical-agent:8081
+      - FORECAST_SERVICE_URL=http://forecast-agent:8082
+    depends_on:
+      - postgres
+      - redis
+      - sentiment
+    networks:
+      - vnstock-net
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+  # Go Technical Analysis Agent
+  technical-agent:
+    build:
+      context: ./go-services
+      dockerfile: ../docker/go.Dockerfile
+      args:
+        SERVICE: technical-agent
+    container_name: vnstock-technical
+    restart: unless-stopped
+    ports:
+      - "8081:8080"
+    environment:
+      - PORT=8080
+      - DB_HOST=postgres
+      - DB_PORT=5432
+      - DB_USER=vnstock
+      - DB_PASSWORD=${POSTGRES_PASSWORD}
+      - DB_NAME=vnstock
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+    depends_on:
+      - postgres
+      - redis
+    networks:
+      - vnstock-net
+
+  # Go Forecast Agent
+  forecast-agent:
+    build:
+      context: ./go-services
+      dockerfile: ../docker/go.Dockerfile
+      args:
+        SERVICE: forecast-agent
+    container_name: vnstock-forecast
+    restart: unless-stopped
+    ports:
+      - "8082:8080"
+    environment:
+      - PORT=8080
+      - DB_HOST=postgres
+      - DB_PORT=5432
+      - DB_USER=vnstock
+      - DB_PASSWORD=${POSTGRES_PASSWORD}
+      - DB_NAME=vnstock
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - TECHNICAL_SERVICE_URL=http://technical-agent:8080
+      - SENTIMENT_SERVICE_URL=http://sentiment:8000
+    depends_on:
+      - postgres
+      - redis
+    networks:
+      - vnstock-net
+
+  # Go Master Orchestrator
+  master-orchestrator:
+    build:
+      context: ./go-services
+      dockerfile: ../docker/go.Dockerfile
+      args:
+        SERVICE: master-orchestrator
+    container_name: vnstock-orchestrator
+    restart: unless-stopped
+    ports:
+      - "8083:8080"
+    environment:
+      - PORT=8080
+      - DB_HOST=postgres
+      - DB_PORT=5432
+      - DB_USER=vnstock
+      - DB_PASSWORD=${POSTGRES_PASSWORD}
+      - DB_NAME=vnstock
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - TECHNICAL_SERVICE_URL=http://technical-agent:8080
+      - SENTIMENT_SERVICE_URL=http://sentiment:8000
+      - FORECAST_SERVICE_URL=http://forecast-agent:8080
+      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
+      - GCP_PROJECT_ID=${GCP_PROJECT_ID:-}
+    depends_on:
+      - postgres
+      - redis
+      - technical-agent
+      - sentiment
+      - forecast-agent
+    networks:
+      - vnstock-net
+
+  # ===========================================
+  # PYTHON SERVICES (Hybrid Architecture)
+  # ===========================================
+
+  # Python Sentiment Analysis Agent (PhoBERT)
+  sentiment:
+    build:
+      context: ./python-sentiment
+      dockerfile: Dockerfile
+    container_name: vnstock-sentiment
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      - PORT=8000
+      - MODEL_NAME=vinai/phobert-base
+      - MODEL_CACHE_DIR=/app/.cache
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+    volumes:
+      - sentiment_cache:/app/.cache
+    networks:
+      - vnstock-net
+    deploy:
+      resources:
+        limits:
+          memory: 4G
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 120s  # Model loading takes time
+
+  # ===========================================
+  # INFRASTRUCTURE
+  # ===========================================
+
   # n8n Workflow Automation
   n8n:
     image: n8nio/n8n:latest
@@ -33,59 +200,6 @@ services:
       - redis
     networks:
       - vnstock-net
-    labels:
-      - "traefik.enable=true"
-      - "traefik.http.routers.n8n.rule=Host(`n8n.${DOMAIN:-localhost}`)"
-
-  # AI Agent Service (FastAPI)
-  agent-service:
-    build:
-      context: ./agent-service
-      dockerfile: Dockerfile
-    container_name: vnstock-agents
-    restart: unless-stopped
-    ports:
-      - "8000:8000"
-    environment:
-      # AWS Credentials
-      - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
-      - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
-      - AWS_DEFAULT_REGION=${AWS_REGION:-ap-southeast-1}
-      - S3_BUCKET=${S3_BUCKET:-vnstock-data}
-      
-      # Database
-      - DATABASE_URL=postgresql://admin:${POSTGRES_PASSWORD}@postgres:5432/vnstock
-      
-      # Redis
-      - REDIS_URL=redis://redis:6379/0
-      
-      # API Keys
-      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
-      - OPENAI_API_KEY=${OPENAI_API_KEY}
-      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
-      
-      # Model Paths
-      - PHOBERT_MODEL_PATH=/app/models/phobert
-      
-      # App Settings
-      - DEBUG=False
-      - LOG_LEVEL=INFO
-      - WORKERS=4
-    volumes:
-      - ./agent-service:/app
-      - ./models:/app/models
-      - agent_cache:/app/cache
-    depends_on:
-      - postgres
-      - redis
-    networks:
-      - vnstock-net
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 40s
 
   # PostgreSQL Database
   postgres:
@@ -94,18 +208,18 @@ services:
     restart: unless-stopped
     environment:
       - POSTGRES_DB=vnstock
-      - POSTGRES_USER=admin
+      - POSTGRES_USER=vnstock
       - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
       - PGDATA=/var/lib/postgresql/data/pgdata
     volumes:
       - postgres_data:/var/lib/postgresql/data
-      - ./init-scripts:/docker-entrypoint-initdb.d
+      - ./scripts/init.sql:/docker-entrypoint-initdb.d/init.sql
     ports:
       - "5432:5432"
     networks:
       - vnstock-net
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U admin -d vnstock"]
+      test: ["CMD-SHELL", "pg_isready -U vnstock -d vnstock"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -117,7 +231,7 @@ services:
     restart: unless-stopped
     ports:
       - "6379:6379"
-    command: redis-server --appendonly yes --requirepass ${REDIS_PASSWORD:-}
+    command: redis-server --appendonly yes ${REDIS_PASSWORD:+--requirepass ${REDIS_PASSWORD}}
     volumes:
       - redis_data:/data
     networks:
@@ -128,32 +242,11 @@ services:
       timeout: 5s
       retries: 5
 
-  # Web Dashboard (Next.js)
-  web-dashboard:
-    build:
-      context: ./web-dashboard
-      dockerfile: Dockerfile
-    container_name: vnstock-web
-    restart: unless-stopped
-    ports:
-      - "3000:3000"
-    environment:
-      - NODE_ENV=production
-      - NEXT_PUBLIC_API_URL=http://agent-service:8000
-      - NEXT_PUBLIC_WS_URL=ws://agent-service:8000/ws
-      - DATABASE_URL=postgresql://admin:${POSTGRES_PASSWORD}@postgres:5432/vnstock
-    depends_on:
-      - agent-service
-      - postgres
-    networks:
-      - vnstock-net
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:3000/api/health"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
+  # ===========================================
+  # OPTIONAL SERVICES (use with profiles)
+  # ===========================================
 
-  # Nginx Reverse Proxy (Optional - for production)
+  # Nginx Reverse Proxy (Production)
   nginx:
     image: nginx:alpine
     container_name: vnstock-nginx
@@ -166,15 +259,14 @@ services:
       - ./nginx/ssl:/etc/nginx/ssl:ro
       - nginx_logs:/var/log/nginx
     depends_on:
-      - web-dashboard
-      - agent-service
+      - api-gateway
       - n8n
     networks:
       - vnstock-net
     profiles:
       - production
 
-  # Prometheus Monitoring (Optional)
+  # Prometheus Monitoring
   prometheus:
     image: prom/prometheus:latest
     container_name: vnstock-prometheus
@@ -192,7 +284,7 @@ services:
     profiles:
       - monitoring
 
-  # Grafana Dashboard (Optional)
+  # Grafana Dashboard
   grafana:
     image: grafana/grafana:latest
     container_name: vnstock-grafana
@@ -213,7 +305,7 @@ services:
     profiles:
       - monitoring
 
-  # MinIO (Optional - S3-compatible storage for local development)
+  # MinIO (S3-compatible for local development)
   minio:
     image: minio/minio:latest
     container_name: vnstock-minio
@@ -232,64 +324,6 @@ services:
     profiles:
       - development
 
-  # Telegram Bot Service
-  telegram-bot:
-    build:
-      context: ./telegram-bot
-      dockerfile: Dockerfile
-    container_name: vnstock-telegram
-    restart: unless-stopped
-    environment:
-      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
-      - API_URL=http://agent-service:8000
-      - REDIS_URL=redis://redis:6379/1
-    depends_on:
-      - agent-service
-      - redis
-    networks:
-      - vnstock-net
-
-  # Celery Worker (for async tasks)
-  celery-worker:
-    build:
-      context: ./agent-service
-      dockerfile: Dockerfile
-    container_name: vnstock-celery-worker
-    restart: unless-stopped
-    command: celery -A app.celery worker --loglevel=info --concurrency=4
-    environment:
-      - DATABASE_URL=postgresql://admin:${POSTGRES_PASSWORD}@postgres:5432/vnstock
-      - REDIS_URL=redis://redis:6379/0
-      - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
-      - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
-    volumes:
-      - ./agent-service:/app
-      - ./models:/app/models
-    depends_on:
-      - postgres
-      - redis
-    networks:
-      - vnstock-net
-
-  # Celery Beat (for scheduled tasks)
-  celery-beat:
-    build:
-      context: ./agent-service
-      dockerfile: Dockerfile
-    container_name: vnstock-celery-beat
-    restart: unless-stopped
-    command: celery -A app.celery beat --loglevel=info
-    environment:
-      - DATABASE_URL=postgresql://admin:${POSTGRES_PASSWORD}@postgres:5432/vnstock
-      - REDIS_URL=redis://redis:6379/0
-    volumes:
-      - ./agent-service:/app
-    depends_on:
-      - postgres
-      - redis
-    networks:
-      - vnstock-net
-
 volumes:
   n8n_data:
     driver: local
@@ -297,7 +331,7 @@ volumes:
     driver: local
   redis_data:
     driver: local
-  agent_cache:
+  sentiment_cache:
     driver: local
   grafana_data:
     driver: local
