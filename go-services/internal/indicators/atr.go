@@ -30,10 +30,9 @@ func ATR(highs, lows, closes []float64, period int) []float64 {
 	}
 	atr[period-1] = sum / float64(period)
 
-	// Apply Wilder's smoothing
-	multiplier := 1.0 / float64(period)
+	// Apply Wilder's smoothing: ATR[i] = (ATR[i-1] * (period-1) + TR[i]) / period
 	for i := period; i < n; i++ {
-		atr[i] = (atr[i-1] * float64(period-1) + tr[i]) * multiplier
+		atr[i] = (atr[i-1]*float64(period-1) + tr[i]) / float64(period)
 	}
 
 	return atr

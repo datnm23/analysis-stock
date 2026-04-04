@@ -1,0 +1,59 @@
+syntax = "proto3";
+
+package sentiment;
+
+option go_package = "vnstock-hybrid/proto/sentiment";
+
+// SentimentService handles NLP analysis via gRPC
+service SentimentService {
+  // Analyze a batch of texts for sentiment
+  rpc Analyze(AnalyzeRequest) returns (AnalyzeResponse);
+
+  // Single text analysis (convenience)
+  rpc AnalyzeSingle(AnalyzeSingleRequest) returns (SentimentResult);
+
+  // Health check
+  rpc Health(HealthRequest) returns (HealthResponse);
+}
+
+message AnalyzeRequest {
+  repeated TextItem texts = 1;
+}
+
+message TextItem {
+  string id = 1;
+  string content = 2;
+  string source = 3;
+  string published_at = 4;  // ISO 8601 timestamp
+}
+
+message AnalyzeResponse {
+  repeated SentimentResult results = 1;
+  double processing_time_ms = 2;
+  string model_version = 3;
+}
+
+message AnalyzeSingleRequest {
+  string id = 1;
+  string content = 2;
+  string source = 3;
+}
+
+message SentimentResult {
+  string id = 1;
+  string sentiment = 2;        // "positive", "negative", "neutral"
+  double confidence = 3;
+  repeated string symbols = 4;
+  repeated string keywords = 5;
+  double source_weight = 6;
+  bool is_duplicate = 7;
+}
+
+message HealthRequest {}
+
+message HealthResponse {
+  string status = 1;           // "healthy"
+  string model_name = 2;
+  string model_version = 3;
+  bool gpu_available = 4;
+}

@@ -30,7 +30,9 @@ func RSI(closes []float64, period int) []float64 {
 
 	// Calculate first RSI
 	if avgLoss == 0 {
-		result[period] = 100
+		result[period] = 100 // No losses → fully overbought
+	} else if avgGain == 0 {
+		result[period] = 0 // No gains → fully oversold
 	} else {
 		rs := avgGain / avgLoss
 		result[period] = 100.0 - (100.0 / (1.0 + rs))
@@ -51,6 +53,8 @@ func RSI(closes []float64, period int) []float64 {
 
 		if avgLoss == 0 {
 			result[i] = 100
+		} else if avgGain == 0 {
+			result[i] = 0
 		} else {
 			rs := avgGain / avgLoss
 			result[i] = 100.0 - (100.0 / (1.0 + rs))

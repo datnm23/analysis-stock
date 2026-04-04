@@ -6,15 +6,16 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
 	"github.com/gin-gonic/gin"
-	"github.com/redis/go-redis/v9"
-	"gorm.io/gorm"
+	swaggerFiles "github.com/swaggo/files"
+	ginSwagger "github.com/swaggo/gin-swagger"
+	"go.opentelemetry.io/contrib/instrumentation/github.com/gin-gonic/gin/otelgin"
 
-	"vnstock-hybrid/internal/config"
-	"vnstock-hybrid/internal/database"
+	"vnstock-hybrid/internal/app"
 	"vnstock-hybrid/internal/handlers"
 	"vnstock-hybrid/internal/middleware"
 	"vnstock-hybrid/internal/services"
@@ -22,32 +23,48 @@ import (
 )
 
 func main() {
-	cfg := config.Load()
+	infra := app.Setup(context.Background(), "api-gateway")
+	defer infra.Close(context.Background())
 
-	// Database connection (optional - skip if not configured)
-	var db *gorm.DB
-	if cfg.Database.Password != "" {
-		var err error
-		db, err = database.NewPostgresDB(cfg.Database)
-		if err != nil {
-			log.Printf("Warning: Database not available: %v", err)
-		}
+	cfg := infra.Cfg
+
+	// Setup JWT configuration
+	jwtCfg := middleware.DefaultJWTConfig()
+	jwtCfg.SecretKey = cfg.Auth.JWTSecretKey
+	jwtCfg.ExpirationHours = cfg.Auth.JWTExpirationHours
+	if cfg.Auth.EnableAuth && cfg.Auth.JWTSecretKey != "" {
+		jwtCfg.SkipPaths = []string{"/health", "/ready", "/metrics"}
 	}
 
-	// Redis connection (optional - skip if not configured)
-	var rdb *redis.Client
-	if cfg.Redis.Host != "" {
-		var err error
-		rdb, err = database.NewRedisClient(cfg.Redis)
-		if err != nil {
-			log.Printf("Warning: Redis not available: %v", err)
+	// Setup API key configuration
+	apiKeyCfg := middleware.DefaultAPIKeyConfig()
+	apiKeyCfg.HeaderName = cfg.Auth.APIKeyHeader
+	if cfg.Auth.APIKeys != "" {
+		pairs := strings.Split(cfg.Auth.APIKeys, ",")
+		for _, pair := range pairs {
+			parts := strings.SplitN(pair, ":", 2)
+			if len(parts) == 2 {
+				apiKeyCfg.APIKeys[parts[0]] = parts[1]
+			}
 		}
 	}
 
 	// Initialize services
-	marketClient := vnstock.NewClient()
-	technicalSvc := services.NewTechnicalService(db, rdb, marketClient)
+	marketClient := vnstock.NewClientWithConfig(cfg.Services.VnStockBaseURL, 30*time.Second)
+	technicalSvc := services.NewTechnicalService(infra.DB, infra.Redis, marketClient)
 	sentimentClient := services.NewSentimentClient(cfg.Services.SentimentURL)
+	forecastSvc := services.NewForecastService(infra.DB, infra.Redis, technicalSvc, sentimentClient)
+	orchestratorSvc := services.NewOrchestratorService(infra.DB, infra.Redis, forecastSvc)
+
+	// Async job queue (Redis Streams)
+	var jobQueue *services.JobQueue
+	if infra.Redis != nil {
+		var err error
+		jobQueue, err = services.NewJobQueue(infra.Redis, forecastSvc)
+		if err != nil {
+			log.Printf("Warning: job queue unavailable: %v", err)
+		}
+	}
 
 	// Setup Gin
 	if os.Getenv("GIN_MODE") != "debug" {
@@ -56,28 +73,52 @@ func main() {
 
 	r := gin.New()
 	r.Use(gin.Recovery())
+	r.Use(otelgin.Middleware(cfg.Telemetry.ServiceName))
+	r.Use(middleware.CorrelationID())
+	r.Use(middleware.PrometheusMetrics())
 	r.Use(middleware.Logger())
 
-	if rdb != nil {
-		r.Use(middleware.RateLimiter(rdb, 100, time.Minute))
+	if infra.Redis != nil {
+		r.Use(middleware.RateLimiter(infra.Redis, 100, time.Minute))
 	}
 
-	// Health endpoints
-	r.GET("/health", handlers.HealthCheck(db, rdb))
-	r.GET("/ready", handlers.ReadinessCheck(db, rdb, sentimentClient))
+	if cfg.Auth.EnableAuth {
+		r.Use(middleware.JWTOrAPIKeyAuth(jwtCfg, apiKeyCfg))
+	}
+
+	// Health & metrics endpoints (no auth)
+	r.GET("/health", handlers.HealthCheck(infra.DB, infra.Redis))
+	r.GET("/ready", handlers.ReadinessCheck(infra.DB, infra.Redis, sentimentClient))
+	r.GET("/metrics", middleware.MetricsHandler())
+
+	// Swagger documentation
+	r.GET("/swagger/*any", ginSwagger.WrapHandler(swaggerFiles.Handler))
 
 	// API v1
 	v1 := r.Group("/api/v1")
 	{
-		// Technical analysis
 		v1.GET("/technical/:symbol", handlers.TechnicalAnalysis(technicalSvc))
 		v1.POST("/technical/batch", handlers.TechnicalBatch(technicalSvc))
-
-		// Sentiment (proxy to Python)
 		v1.POST("/sentiment", handlers.SentimentProxy(sentimentClient))
-
-		// Combined analysis
 		v1.POST("/analyze", handlers.FullAnalysis(technicalSvc, sentimentClient))
+		v1.GET("/forecast/:symbol", handlers.ForecastAnalysis(forecastSvc))
+		v1.GET("/reports/daily", handlers.DailyReport(orchestratorSvc))
+		v1.POST("/reports/generate", handlers.GenerateDailyReport(orchestratorSvc))
+
+		if jobQueue != nil {
+			v1.POST("/analysis/queue", handlers.EnqueueAnalysis(jobQueue))
+			v1.GET("/analysis/status/:id", handlers.AnalysisStatus(jobQueue))
+		}
+	}
+
+	// Legacy routes (n8n compatibility)
+	legacy := r.Group("/api")
+	{
+		legacy.POST("/analyze/technical", handlers.LegacyTechnicalAnalysis(technicalSvc))
+		legacy.POST("/analyze/sentiment", handlers.SentimentProxy(sentimentClient))
+		legacy.POST("/synthesize", handlers.SynthesizeHandler(forecastSvc))
+		legacy.POST("/market/data", handlers.MarketData(technicalSvc))
+		legacy.GET("/reports/daily", handlers.DailyReport(orchestratorSvc))
 	}
 
 	// Start server
@@ -88,9 +129,22 @@ func main() {
 		WriteTimeout: cfg.Server.WriteTimeout,
 	}
 
+	workerCtx, workerCancel := context.WithCancel(context.Background())
+	defer workerCancel()
+	if jobQueue != nil {
+		go jobQueue.StartWorker(workerCtx)
+	}
+
 	go func() {
 		log.Printf("API Gateway starting on port %s", cfg.Server.Port)
-		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+		var err error
+		if cfg.Server.EnableTLS {
+			log.Printf("TLS enabled - using cert: %s, key: %s", cfg.Server.CertFile, cfg.Server.KeyFile)
+			err = srv.ListenAndServeTLS(cfg.Server.CertFile, cfg.Server.KeyFile)
+		} else {
+			err = srv.ListenAndServe()
+		}
+		if err != nil && err != http.ErrServerClosed {
 			log.Fatalf("Server error: %v", err)
 		}
 	}()

@@ -1,0 +1,313 @@
+{
+  "name": "VNStock - Crawl Pipeline",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "minutes",
+              "minutesInterval": 30
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [0, 0],
+      "id": "trigger-cron",
+      "name": "market_hours_trigger",
+      "notes": "Runs every 30 minutes. Crawl agent handles market-hours filtering."
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://crawl-agent:8085/scrape/all",
+        "options": {
+          "timeout": 120000
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [400, 0],
+      "id": "scrape-all",
+      "name": "scrape_all_sources",
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 10000,
+      "onError": "continueRegularOutput",
+      "notes": "Calls crawl-agent to scrape all tiers: RSS + Web (aiohttp) + Firecrawl + Telegram"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "check-total",
+              "leftValue": "={{ $json.total }}",
+              "rightValue": 0,
+              "operator": {
+                "type": "number",
+                "operation": "gt"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.filter",
+      "typeVersion": 2.2,
+      "position": [700, 0],
+      "id": "filter-empty",
+      "name": "has_items"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "items",
+              "name": "items",
+              "value": "={{ $json.items }}",
+              "type": "string"
+            },
+            {
+              "id": "total",
+              "name": "total",
+              "value": "={{ $json.total }}",
+              "type": "number"
+            },
+            {
+              "id": "symbols",
+              "name": "symbols_found",
+              "value": "={{ $json.symbols_found.join(', ') }}",
+              "type": "string"
+            },
+            {
+              "id": "stats",
+              "name": "stats_summary",
+              "value": "={{ 'RSS: ' + ($json.stats.rss || 0) + ', Web: ' + ($json.stats.web_crawl || 0) + ', Firecrawl: ' + ($json.stats.firecrawl || 0) + ', Telegram: ' + ($json.stats.telegram || 0) }}",
+              "type": "string"
+            }
+          ]
+        },
+        "includeOtherFields": false,
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [1000, 0],
+      "id": "normalize-data",
+      "name": "normalize_scrape_data"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://sentiment:8000/analyze",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"texts\": {{ JSON.stringify($json.items.slice(0, 100).map((item, idx) => ({\n    \"id\": item.id || String(idx),\n    \"content\": (item.content || item.title || '').substring(0, 500),\n    \"source\": item.source || 'unknown'\n  }))) }}\n}",
+        "options": {
+          "timeout": 120000
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1300, 0],
+      "id": "sentiment-analyze",
+      "name": "analyze_sentiment",
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 5000,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "check-negative",
+              "leftValue": "={{ ($json.results || []).filter(r => r.sentiment === 'negative' && r.confidence > 70).length }}",
+              "rightValue": 3,
+              "operator": {
+                "type": "number",
+                "operation": "gte"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.filter",
+      "typeVersion": 2.2,
+      "position": [1600, -200],
+      "id": "alert-filter",
+      "name": "strong_negative_signal",
+      "notes": "Alert if >= 3 articles have high-confidence negative sentiment"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://telegram-bot:8084/send",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"message\": \"⚠️ *Cảnh báo tâm lý thị trường*\\n\\n🔴 Phát hiện {{ ($json.results || []).filter(r => r.sentiment === 'negative' && r.confidence > 70).length }} tin tức tiêu cực mạnh.\\n\\n📊 Symbols liên quan: {{ $('normalize_scrape_data').item.json.symbols_found }}\\n\\n📈 Tổng tin: {{ $('normalize_scrape_data').item.json.total }}\\n{{ $('normalize_scrape_data').item.json.stats_summary }}\"\n}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1900, -200],
+      "id": "telegram-alert",
+      "name": "send_telegram_alert",
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "report",
+              "name": "report",
+              "value": "={{ JSON.stringify({ scrape_stats: $('normalize_scrape_data').item.json.stats_summary, symbols: $('normalize_scrape_data').item.json.symbols_found, sentiment_summary: { positive: ($json.results || []).filter(r => r.sentiment === 'positive').length, negative: ($json.results || []).filter(r => r.sentiment === 'negative').length, neutral: ($json.results || []).filter(r => r.sentiment === 'neutral').length }, total_analyzed: ($json.results || []).length }) }}",
+              "type": "string"
+            }
+          ]
+        },
+        "includeOtherFields": true,
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [1600, 200],
+      "id": "build-report",
+      "name": "build_report_summary"
+    },
+    {
+      "parameters": {
+        "content": "## VNStock Crawl Pipeline\n\nFlow: Cron Trigger → Scrape All (crawl-agent) → Filter → Sentiment (PhoBERT) → Alert/Report\n\n- **Tier 1**: RSS + aiohttp (VnExpress, CafeF)\n- **Tier 2**: Firecrawl (DanTri, ThanhNien, TuoiTre)\n- **Tier 3**: Telegram channels\n\nRuns every 30 minutes during market hours.",
+        "height": 220,
+        "width": 800
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [0, -300],
+      "typeVersion": 1,
+      "id": "note-overview",
+      "name": "Pipeline Overview"
+    },
+    {
+      "parameters": {
+        "content": "## Firecrawl Sub-Workflow\n\nDanTri/ThanhNien/TuoiTre use self-hosted Firecrawl:\n- Playwright renders JS\n- `onlyMainContent: true`\n- `excludeTags: [iframe, nav, header, footer]`\n- Returns clean Markdown\n\nSame pattern as lucaswalter/n8n-ai-workflows",
+        "height": 200,
+        "width": 400,
+        "color": 4
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [400, -300],
+      "typeVersion": 1,
+      "id": "note-firecrawl",
+      "name": "Firecrawl Note"
+    }
+  ],
+  "connections": {
+    "market_hours_trigger": {
+      "main": [
+        [
+          {
+            "node": "scrape_all_sources",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "scrape_all_sources": {
+      "main": [
+        [
+          {
+            "node": "has_items",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "has_items": {
+      "main": [
+        [
+          {
+            "node": "normalize_scrape_data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "normalize_scrape_data": {
+      "main": [
+        [
+          {
+            "node": "analyze_sentiment",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "analyze_sentiment": {
+      "main": [
+        [
+          {
+            "node": "strong_negative_signal",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "build_report_summary",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "strong_negative_signal": {
+      "main": [
+        [
+          {
+            "node": "send_telegram_alert",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "Asia/Ho_Chi_Minh",
+    "saveExecutionProgress": true
+  },
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "description": "VNStock Data Ingestion: 3-tier crawl → sentiment analysis → alerts"
+  },
+  "tags": [
+    {"name": "vnstock"},
+    {"name": "crawl"},
+    {"name": "production"}
+  ]
+}

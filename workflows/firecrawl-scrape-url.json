@@ -1,0 +1,146 @@
+{
+  "name": "VNStock - Firecrawl Scrape URL",
+  "nodes": [
+    {
+      "parameters": {
+        "workflowInputs": {
+          "values": [
+            {
+              "name": "url"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [0, 0],
+      "id": "workflow-trigger",
+      "name": "workflow_trigger"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://firecrawl-api:3002/v1/scrape",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"url\": \"{{ $json.url }}\",\n  \"formats\": [\"markdown\", \"links\"],\n  \"excludeTags\": [\"iframe\", \"nav\", \"header\", \"footer\", \"aside\"],\n  \"onlyMainContent\": true,\n  \"blockAds\": true\n}",
+        "options": {
+          "timeout": 60000
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [380, 0],
+      "id": "scrape-url",
+      "name": "scrape_url_firecrawl",
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000,
+      "onError": "continueRegularOutput",
+      "notes": "Calls self-hosted Firecrawl to render page, extract main content, and return Markdown."
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "markdown",
+              "name": "markdown",
+              "value": "={{ $json.data?.markdown || '' }}",
+              "type": "string"
+            },
+            {
+              "id": "title",
+              "name": "title",
+              "value": "={{ $json.data?.metadata?.title || '' }}",
+              "type": "string"
+            },
+            {
+              "id": "description",
+              "name": "description",
+              "value": "={{ $json.data?.metadata?.description || '' }}",
+              "type": "string"
+            },
+            {
+              "id": "links",
+              "name": "links",
+              "value": "={{ JSON.stringify($json.data?.links || []) }}",
+              "type": "string"
+            },
+            {
+              "id": "source-url",
+              "name": "source_url",
+              "value": "={{ $json.data?.metadata?.sourceURL || $('workflow_trigger').item.json.url }}",
+              "type": "string"
+            }
+          ]
+        },
+        "includeOtherFields": false,
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [760, 0],
+      "id": "extract-fields",
+      "name": "extract_content_fields"
+    },
+    {
+      "parameters": {
+        "content": "## Firecrawl Scrape URL Sub-Workflow\n\nSub-workflow that takes a URL input and returns clean Markdown via self-hosted Firecrawl.\n\nUsage: Call from main workflow via Execute Workflow node.\n\nInput: `{ url: \"https://vnexpress.net/...\" }`\nOutput: `{ markdown, title, description, links, source_url }`",
+        "height": 200,
+        "width": 600
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [0, -250],
+      "typeVersion": 1,
+      "id": "note-info",
+      "name": "Sub-Workflow Info"
+    }
+  ],
+  "connections": {
+    "workflow_trigger": {
+      "main": [
+        [
+          {
+            "node": "scrape_url_firecrawl",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "scrape_url_firecrawl": {
+      "main": [
+        [
+          {
+            "node": "extract_content_fields",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "callerPolicy": "any"
+  },
+  "meta": {
+    "description": "Reusable sub-workflow: URL → Firecrawl self-hosted → clean Markdown"
+  },
+  "tags": [
+    {"name": "vnstock"},
+    {"name": "firecrawl"},
+    {"name": "sub-workflow"}
+  ]
+}

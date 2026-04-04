@@ -68,7 +68,7 @@ CREATE TABLE IF NOT EXISTS sentiment_analysis (
     text_content TEXT,
     sentiment VARCHAR(20) CHECK (sentiment IN ('positive', 'negative', 'neutral')),
     confidence DECIMAL(5, 2),
-    keywords TEXT[],
+    keywords JSONB,
 
     -- Metadata
     published_at TIMESTAMPTZ,

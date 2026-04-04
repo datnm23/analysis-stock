@@ -10,42 +10,24 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
-	"github.com/redis/go-redis/v9"
-	"gorm.io/gorm"
+	"go.opentelemetry.io/contrib/instrumentation/github.com/gin-gonic/gin/otelgin"
 
-	"vnstock-hybrid/internal/config"
-	"vnstock-hybrid/internal/database"
+	"vnstock-hybrid/internal/app"
 	"vnstock-hybrid/internal/handlers"
+	"vnstock-hybrid/internal/middleware"
 	"vnstock-hybrid/internal/services"
 	"vnstock-hybrid/pkg/vnstock"
 )
 
 func main() {
-	cfg := config.Load()
+	infra := app.Setup(context.Background(), "technical-agent")
+	defer infra.Close(context.Background())
 
-	// Database connection
-	var db *gorm.DB
-	if cfg.Database.Password != "" {
-		var err error
-		db, err = database.NewPostgresDB(cfg.Database)
-		if err != nil {
-			log.Printf("Warning: Database not available: %v", err)
-		}
-	}
-
-	// Redis connection
-	var rdb *redis.Client
-	if cfg.Redis.Host != "" {
-		var err error
-		rdb, err = database.NewRedisClient(cfg.Redis)
-		if err != nil {
-			log.Printf("Warning: Redis not available: %v", err)
-		}
-	}
+	cfg := infra.Cfg
 
 	// Initialize services
 	marketClient := vnstock.NewClient()
-	technicalSvc := services.NewTechnicalService(db, rdb, marketClient)
+	technicalSvc := services.NewTechnicalService(infra.DB, infra.Redis, marketClient)
 
 	// Setup Gin
 	if os.Getenv("GIN_MODE") != "debug" {
@@ -54,15 +36,19 @@ func main() {
 
 	r := gin.New()
 	r.Use(gin.Recovery())
-	r.Use(gin.Logger())
+	r.Use(otelgin.Middleware(cfg.Telemetry.ServiceName))
+	r.Use(middleware.CorrelationID())
+	r.Use(middleware.PrometheusMetrics())
+	r.Use(middleware.Logger())
 
-	// Health endpoints
+	// Health & metrics endpoints
 	r.GET("/health", func(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{
 			"status":  "healthy",
 			"service": "technical-agent",
 		})
 	})
+	r.GET("/metrics", middleware.MetricsHandler())
 
 	// Technical analysis endpoints
 	r.GET("/analyze/:symbol", handlers.TechnicalAnalysis(technicalSvc))

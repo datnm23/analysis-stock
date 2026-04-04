@@ -326,7 +326,7 @@
     },
     {
       "parameters": {
-        "url": "http://agent-service:8000/api/market/data",
+        "url": "http://api-gateway:8080/api/market/data",
         "method": "POST",
         "sendBody": true,
         "specifyBody": "json",
@@ -344,7 +344,7 @@
     },
     {
       "parameters": {
-        "url": "http://agent-service:8000/api/analyze/technical",
+        "url": "http://api-gateway:8080/api/analyze/technical",
         "method": "POST",
         "sendBody": true,
         "specifyBody": "json",
@@ -362,7 +362,7 @@
     },
     {
       "parameters": {
-        "url": "http://agent-service:8000/api/analyze/sentiment",
+        "url": "http://api-gateway:8080/api/analyze/sentiment",
         "method": "POST",
         "sendBody": true,
         "specifyBody": "json",
@@ -390,7 +390,7 @@
     },
     {
       "parameters": {
-        "url": "http://agent-service:8000/api/synthesize",
+        "url": "http://api-gateway:8080/api/synthesize",
         "method": "POST",
         "sendBody": true,
         "specifyBody": "json",

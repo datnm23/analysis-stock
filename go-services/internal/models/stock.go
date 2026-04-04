@@ -60,7 +60,7 @@ type SentimentAnalysis struct {
 	TextContent string    `gorm:"type:text" json:"text_content"`
 	Sentiment   string    `gorm:"size:20" json:"sentiment"`
 	Confidence  float64   `gorm:"type:decimal(5,2)" json:"confidence"`
-	Keywords    []string  `gorm:"type:text[];serializer:json" json:"keywords"`
+	Keywords    []string  `gorm:"type:jsonb;serializer:json" json:"keywords"`
 	PublishedAt time.Time `json:"published_at"`
 	AnalyzedAt  time.Time `gorm:"autoCreateTime" json:"analyzed_at"`
 }

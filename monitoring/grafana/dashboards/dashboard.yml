@@ -1,0 +1,13 @@
+apiVersion: 1
+
+providers:
+  - name: "VN Stock Analysis"
+    orgId: 1
+    folder: "VN Stock"
+    type: file
+    disableDeletion: false
+    updateIntervalSeconds: 60
+    allowUiUpdates: true
+    options:
+      path: /etc/grafana/provisioning/dashboards
+      foldersFromFilesStructure: false

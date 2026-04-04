@@ -6,14 +6,17 @@ services:
   # ===========================================
 
   # Go API Gateway
+  # Scale with: docker-compose --profile production up -d --scale api-gateway=3
+  # container_name is intentionally omitted to allow multiple replicas.
   api-gateway:
     build:
       context: ./go-services
       dockerfile: ../docker/go.Dockerfile
       args:
         SERVICE: api-gateway
-    container_name: vnstock-api-gateway
     restart: unless-stopped
+    # Direct port mapping only used in development (single instance).
+    # In production profile, traffic arrives via nginx on port 80/443.
     ports:
       - "8080:8080"
     environment:
@@ -29,6 +32,7 @@ services:
       - SENTIMENT_SERVICE_URL=http://sentiment:8000
       - TECHNICAL_SERVICE_URL=http://technical-agent:8081
       - FORECAST_SERVICE_URL=http://forecast-agent:8082
+      - VNSTOCK_BASE_URL=${VNSTOCK_BASE_URL:-https://apipubaws.tcbs.com.vn/stock-insight/v1}
     depends_on:
       - postgres
       - redis
@@ -130,6 +134,28 @@ services:
     networks:
       - vnstock-net
 
+  # Telegram Bot for alerts and user interaction
+  telegram-bot:
+    build:
+      context: ./telegram-bot
+      dockerfile: Dockerfile
+    container_name: vnstock-telegram-bot
+    restart: unless-stopped
+    environment:
+      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
+      - TELEGRAM_CHANNEL_ID=${TELEGRAM_CHANNEL_ID:-@vnstock_alerts}
+      - TELEGRAM_URGENT_CHANNEL_ID=${TELEGRAM_URGENT_CHANNEL_ID:-@vnstock_urgent_alerts}
+      - API_GATEWAY_URL=http://api-gateway:8080
+      - TELEGRAM_USE_WEBHOOK=${TELEGRAM_USE_WEBHOOK:-false}
+      - TELEGRAM_WEBHOOK_URL=${TELEGRAM_WEBHOOK_URL:-}
+      - PORT=8084
+    depends_on:
+      - api-gateway
+    networks:
+      - vnstock-net
+    profiles:
+      - bot
+
   # ===========================================
   # PYTHON SERVICES (Hybrid Architecture)
   # ===========================================
@@ -143,12 +169,22 @@ services:
     restart: unless-stopped
     ports:
       - "8000:8000"
+      - "50051:50051"  # gRPC
     environment:
       - PORT=8000
+      - GRPC_PORT=50051
       - MODEL_NAME=vinai/phobert-base
       - MODEL_CACHE_DIR=/app/.cache
       - REDIS_HOST=redis
       - REDIS_PORT=6379
+      - TELEGRAM_APP_API_ID=${TELEGRAM_APP_API_ID}
+      - TELEGRAM_APP_API_HASH=${TELEGRAM_APP_API_HASH}
+      - ENABLE_ML_FORECAST=${ENABLE_ML_FORECAST:-false}
+      - LSTM_WEIGHTS_PATH=${LSTM_WEIGHTS_PATH:-models/lstm_forecast.pt}
+      - LSTM_SEQUENCE_LENGTH=${LSTM_SEQUENCE_LENGTH:-60}
+      - LSTM_FORECAST_DAYS=${LSTM_FORECAST_DAYS:-5}
+      - USE_ONNX=${USE_ONNX:-false}
+      - ONNX_MODEL_DIR=${ONNX_MODEL_DIR:-models/onnx}
     volumes:
       - sentiment_cache:/app/.cache
     networks:
@@ -156,7 +192,7 @@ services:
     deploy:
       resources:
         limits:
-          memory: 4G
+          memory: 2G  # 4G with PyTorch, 2G sufficient with ONNX INT8
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
       interval: 30s
@@ -213,7 +249,8 @@ services:
       - PGDATA=/var/lib/postgresql/data/pgdata
     volumes:
       - postgres_data:/var/lib/postgresql/data
-      - ./scripts/init.sql:/docker-entrypoint-initdb.d/init.sql
+      # Use migrations instead of legacy init.sql (GAP-9)
+      - ./go-services/migrations:/docker-entrypoint-initdb.d/migrations:ro
     ports:
       - "5432:5432"
     networks:
@@ -230,14 +267,14 @@ services:
     container_name: vnstock-cache
     restart: unless-stopped
     ports:
-      - "6379:6379"
+      - "16379:6379"
     command: redis-server --appendonly yes ${REDIS_PASSWORD:+--requirepass ${REDIS_PASSWORD}}
     volumes:
       - redis_data:/data
     networks:
       - vnstock-net
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test: ["CMD-SHELL", "redis-cli ${REDIS_PASSWORD:+-a $REDIS_PASSWORD --no-auth-warning} ping | grep PONG"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -266,6 +303,24 @@ services:
     profiles:
       - production
 
+  # Jaeger Distributed Tracing UI
+  # Access: http://localhost:16686
+  # Collects spans via OTLP HTTP on port 4318 (ready for OTel SDK integration)
+  jaeger:
+    image: jaegertracing/all-in-one:1.55
+    container_name: vnstock-jaeger
+    restart: unless-stopped
+    ports:
+      - "16686:16686"  # Jaeger UI
+      - "4318:4318"    # OTLP HTTP collector (for future OTel SDK)
+      - "6831:6831/udp" # Jaeger agent (Thrift compact)
+    environment:
+      - COLLECTOR_OTLP_ENABLED=true
+    networks:
+      - vnstock-net
+    profiles:
+      - monitoring
+
   # Prometheus Monitoring
   prometheus:
     image: prom/prometheus:latest
@@ -274,7 +329,7 @@ services:
     ports:
       - "9090:9090"
     volumes:
-      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./monitoring/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
       - prometheus_data:/prometheus
     command:
       - '--config.file=/etc/prometheus/prometheus.yml'
@@ -298,12 +353,39 @@ services:
     volumes:
       - grafana_data:/var/lib/grafana
       - ./monitoring/grafana/dashboards:/etc/grafana/provisioning/dashboards:ro
+      - ./monitoring/grafana/datasources:/etc/grafana/provisioning/datasources:ro
     depends_on:
       - prometheus
     networks:
       - vnstock-net
     profiles:
       - monitoring
+
+  # PostgreSQL Automated Backup
+  db-backup:
+    build:
+      context: .
+      dockerfile: docker/backup.Dockerfile
+    container_name: vnstock-db-backup
+    restart: unless-stopped
+    environment:
+      - DB_HOST=postgres
+      - DB_PORT=5432
+      - DB_USER=vnstock
+      - DB_NAME=vnstock
+      - PGPASSWORD=${POSTGRES_PASSWORD}
+      - RETENTION_DAYS=${BACKUP_RETENTION_DAYS:-7}
+      - S3_BUCKET=${BACKUP_S3_BUCKET:-}
+      - S3_ENDPOINT=${S3_ENDPOINT:-http://minio:9000}
+    volumes:
+      - backup_data:/backups
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - vnstock-net
+    profiles:
+      - backup
 
   # MinIO (S3-compatible for local development)
   minio:
@@ -324,6 +406,120 @@ services:
     profiles:
       - development
 
+  # ============================================
+  # Firecrawl Self-Hosted (HTML→Markdown engine)
+  # ============================================
+
+  firecrawl-api:
+    image: ghcr.io/firecrawl/firecrawl:latest
+    container_name: vnstock-firecrawl
+    restart: unless-stopped
+    ports:
+      - "3002:3002"
+    environment:
+      - PORT=3002
+      - HOST=0.0.0.0
+      - USE_DB_AUTHENTICATION=false
+      - REDIS_URL=redis://redis:6379
+      - REDIS_RATE_LIMIT_URL=redis://redis:6379
+      - PLAYWRIGHT_MICROSERVICE_URL=http://firecrawl-playwright:3000/scrape
+      - NUQ_RABBITMQ_URL=amqp://firecrawl-rabbitmq:5672
+      - BULL_AUTH_KEY=${FIRECRAWL_BULL_KEY:-firecrawl-local}
+      - NUM_WORKERS_PER_QUEUE=4
+      - CRAWL_CONCURRENT_REQUESTS=5
+      - MAX_CONCURRENT_JOBS=3
+      - BROWSER_POOL_SIZE=3
+    depends_on:
+      redis:
+        condition: service_healthy
+      firecrawl-playwright:
+        condition: service_started
+      firecrawl-rabbitmq:
+        condition: service_healthy
+    networks:
+      - vnstock-net
+    deploy:
+      resources:
+        limits:
+          memory: 4G
+    profiles:
+      - crawl
+
+  firecrawl-playwright:
+    image: ghcr.io/firecrawl/playwright-service:latest
+    container_name: vnstock-firecrawl-pw
+    restart: unless-stopped
+    environment:
+      - PORT=3000
+      - BLOCK_MEDIA=true
+      - MAX_CONCURRENT_PAGES=5
+    networks:
+      - vnstock-net
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+    profiles:
+      - crawl
+
+  firecrawl-rabbitmq:
+    image: rabbitmq:3-management-alpine
+    container_name: vnstock-firecrawl-rmq
+    restart: unless-stopped
+    networks:
+      - vnstock-net
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "check_running"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    profiles:
+      - crawl
+
+  # ============================================
+  # Crawl Agent (multi-tier news aggregation)
+  # ============================================
+
+  crawl-agent:
+    build:
+      context: ./crawl-agent
+      dockerfile: Dockerfile
+    container_name: vnstock-crawl
+    restart: unless-stopped
+    ports:
+      - "8085:8085"
+    environment:
+      - PORT=8085
+      - FIRECRAWL_API_URL=http://firecrawl-api:3002
+      - SENTIMENT_SERVICE_URL=http://sentiment:8000
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - REDIS_PASSWORD=${REDIS_PASSWORD}
+      - TELEGRAM_APP_API_ID=${TELEGRAM_APP_API_ID}
+      - TELEGRAM_APP_API_HASH=${TELEGRAM_APP_API_HASH}
+      - TELEGRAM_CHANNELS=${TELEGRAM_CHANNELS:-chungkhoanUG,ChungkhoanGalaxy,finbotrealtimenews}
+      - SCRAPE_INTERVAL_MINUTES=30
+      - SCRAPE_MARKET_HOURS_ONLY=true
+      - ENABLE_FIRECRAWL=true
+      - ENABLE_TELEGRAM=${ENABLE_TELEGRAM:-false}
+    volumes:
+      - crawl_data:/app/data
+    depends_on:
+      redis:
+        condition: service_healthy
+      sentiment:
+        condition: service_healthy
+    networks:
+      - vnstock-net
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8085/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    profiles:
+      - crawl
+
 volumes:
   n8n_data:
     driver: local
@@ -341,6 +537,10 @@ volumes:
     driver: local
   nginx_logs:
     driver: local
+  crawl_data:
+    driver: local
+  backup_data:
+    driver: local
 
 networks:
   vnstock-net:
@@ -348,3 +548,4 @@ networks:
     ipam:
       config:
         - subnet: 172.28.0.0/16
+

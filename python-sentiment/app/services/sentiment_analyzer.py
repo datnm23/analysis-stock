@@ -2,7 +2,7 @@ import json
 import logging
 import re
 from pathlib import Path
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, Tuple
 
 from app.models.phobert import PhoBERTSentiment
 
@@ -23,7 +23,23 @@ class SentimentAnalyzer:
         # Symbol pattern for Vietnamese stocks (3 uppercase letters)
         self.symbol_pattern = re.compile(r'\b([A-Z]{3})\b')
 
-    def _load_slang_dictionary(self, path: str):
+        # Initialize word segmenter (optional — PhoBERT performs better with
+        # word-segmented input, e.g. "cổ phiếu" → "cổ_phiếu")
+        self._segmenter = None
+        try:
+            import py_vncorenlp
+            self._segmenter = py_vncorenlp.VnCoreNLP(annotators=["wseg"])
+            logger.info("VnCoreNLP word segmenter loaded")
+        except ImportError:
+            logger.warning(
+                "py_vncorenlp not installed — running without word segmentation. "
+                "Install with: pip install py_vncorenlp && python -c "
+                "\"import py_vncorenlp; py_vncorenlp.download_model()\""
+            )
+        except Exception as e:
+            logger.warning("VnCoreNLP init failed: %s — running without segmentation", e)
+
+    def _load_slang_dictionary(self, path: str) -> None:
         try:
             with open(path, 'r', encoding='utf-8') as f:
                 data = json.load(f)
@@ -35,7 +51,14 @@ class SentimentAnalyzer:
             logger.warning(f"Failed to load slang dictionary: {e}")
 
     def preprocess_text(self, text: str) -> str:
-        """Preprocess Vietnamese text for sentiment analysis."""
+        """Preprocess Vietnamese text for sentiment analysis.
+
+        Steps:
+        1. Normalize whitespace
+        2. Log detected slang terms
+        3. Word-segment using VnCoreNLP (if available)
+           e.g. "cổ phiếu tăng mạnh" → "cổ_phiếu tăng mạnh"
+        """
         # Normalize whitespace
         text = " ".join(text.split())
 
@@ -43,6 +66,15 @@ class SentimentAnalyzer:
         for slang, info in self.slang_mappings.items():
             if slang in text.lower():
                 logger.debug(f"Found slang: {slang} -> {info['meaning']}")
+
+        # Word segmentation for PhoBERT
+        if self._segmenter is not None:
+            try:
+                segmented = self._segmenter.word_segment(text)
+                if segmented:
+                    text = segmented[0] if isinstance(segmented, list) else segmented
+            except Exception as e:
+                logger.debug("Segmentation failed for text, using raw: %s", e)
 
         return text
 
@@ -58,17 +90,18 @@ class SentimentAnalyzer:
         keywords = []
         text_lower = text.lower()
 
+        # Use word-boundary matching to avoid false positives from substring matches
         for kw in self.positive_keywords + self.negative_keywords:
-            if kw in text_lower:
+            if re.search(r'(?<!\w)' + re.escape(kw) + r'(?!\w)', text_lower):
                 keywords.append(kw)
 
         for slang in self.slang_mappings:
-            if slang in text_lower:
+            if re.search(r'(?<!\w)' + re.escape(slang) + r'(?!\w)', text_lower):
                 keywords.append(slang)
 
         return keywords
 
-    def adjust_confidence(self, base_sentiment: str, base_confidence: float, text: str) -> tuple:
+    def adjust_confidence(self, base_sentiment: str, base_confidence: float, text: str) -> Tuple[str, float]:
         """Adjust sentiment based on slang and keywords."""
         text_lower = text.lower()
         adjustment = 0.0

@@ -11,6 +11,12 @@ import (
 )
 
 // HealthCheck returns a basic health check handler
+// @Summary		Health check
+// @Description	Returns the health status of the API gateway
+// @Tags		health
+// @Produce		json
+// @Success		200	{object}	map[string]string
+// @Router		/health [get]
 func HealthCheck(db *gorm.DB, rdb *redis.Client) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		status := "healthy"
@@ -26,11 +32,18 @@ func HealthCheck(db *gorm.DB, rdb *redis.Client) gin.HandlerFunc {
 		// Check Redis
 		if rdb != nil {
 			if err := rdb.Ping(c.Request.Context()).Err(); err != nil {
-				status = "degraded"
+				if status == "healthy" {
+					status = "degraded"
+				}
 			}
 		}
 
-		c.JSON(http.StatusOK, gin.H{
+		httpStatus := http.StatusOK
+		if status == "unhealthy" {
+			httpStatus = http.StatusServiceUnavailable
+		}
+
+		c.JSON(httpStatus, gin.H{
 			"status":  status,
 			"service": "vnstock-api-gateway",
 		})
@@ -38,6 +51,12 @@ func HealthCheck(db *gorm.DB, rdb *redis.Client) gin.HandlerFunc {
 }
 
 // ReadinessCheck checks if the service is ready to accept requests
+// @Summary		Readiness check
+// @Description	Returns the readiness status and component health
+// @Tags		health
+// @Produce		json
+// @Success		200	{object}	map[string]interface{}
+// @Router		/ready [get]
 func ReadinessCheck(db *gorm.DB, rdb *redis.Client, sentimentClient *services.SentimentClient) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		ready := true

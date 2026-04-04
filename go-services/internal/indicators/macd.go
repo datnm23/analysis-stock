@@ -28,8 +28,9 @@ func CalculateMACD(closes []float64, fastPeriod, slowPeriod, signalPeriod int) *
 	}
 
 	// Calculate MACD line (Fast EMA - Slow EMA)
+	// Only valid from where both EMAs have been computed
 	macdLine := make([]float64, len(closes))
-	startIdx := slowPeriod - 1 // Start from where slow EMA is valid
+	startIdx := slowPeriod - 1 // Slow EMA is the last to become valid
 
 	for i := startIdx; i < len(closes); i++ {
 		macdLine[i] = emaFast[i] - emaSlow[i]

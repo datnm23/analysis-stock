@@ -1,0 +1,43 @@
+{
+  "_comment": "Vietnamese stock market holidays. Update annually or fetch from API.",
+  "_source": "https://www.hsx.vn (Sở Giao dịch Chứng khoán TP.HCM)",
+  "_last_updated": "2026-03-27",
+  "holidays": {
+    "2026": [
+      {"date": "2026-01-01", "name": "Tết Dương Lịch"},
+      {"date": "2026-01-27", "name": "Tết Nguyên Đán (29 Tết)"},
+      {"date": "2026-01-28", "name": "Tết Nguyên Đán (30 Tết)"},
+      {"date": "2026-01-29", "name": "Tết Nguyên Đán (Mùng 1)"},
+      {"date": "2026-01-30", "name": "Tết Nguyên Đán (Mùng 2)"},
+      {"date": "2026-01-31", "name": "Tết Nguyên Đán (Mùng 3)"},
+      {"date": "2026-02-01", "name": "Tết Nguyên Đán (Mùng 4)"},
+      {"date": "2026-02-02", "name": "Tết Nguyên Đán (nghỉ bù)"},
+      {"date": "2026-04-02", "name": "Giỗ Tổ Hùng Vương (10/3 ÂL)"},
+      {"date": "2026-04-30", "name": "Ngày Giải Phóng Miền Nam"},
+      {"date": "2026-05-01", "name": "Quốc Tế Lao Động"},
+      {"date": "2026-09-02", "name": "Quốc Khánh"},
+      {"date": "2026-09-03", "name": "Quốc Khánh (nghỉ bù)"}
+    ],
+    "2027": [
+      {"date": "2027-01-01", "name": "Tết Dương Lịch"},
+      {"date": "2027-02-15", "name": "Tết Nguyên Đán (29 Tết)"},
+      {"date": "2027-02-16", "name": "Tết Nguyên Đán (30 Tết)"},
+      {"date": "2027-02-17", "name": "Tết Nguyên Đán (Mùng 1)"},
+      {"date": "2027-02-18", "name": "Tết Nguyên Đán (Mùng 2)"},
+      {"date": "2027-02-19", "name": "Tết Nguyên Đán (Mùng 3)"},
+      {"date": "2027-04-21", "name": "Giỗ Tổ Hùng Vương (10/3 ÂL)"},
+      {"date": "2027-04-30", "name": "Ngày Giải Phóng Miền Nam"},
+      {"date": "2027-05-01", "name": "Quốc Tế Lao Động"},
+      {"date": "2027-09-02", "name": "Quốc Khánh"},
+      {"date": "2027-09-03", "name": "Quốc Khánh (nghỉ bù)"}
+    ]
+  },
+  "weekend_days": ["Saturday", "Sunday"],
+  "market_hours": {
+    "open": "09:00",
+    "lunch_start": "11:30",
+    "lunch_end": "13:00",
+    "close": "15:00",
+    "timezone": "Asia/Ho_Chi_Minh"
+  }
+}

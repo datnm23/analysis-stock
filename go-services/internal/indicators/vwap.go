@@ -1,6 +1,12 @@
 package indicators
 
-// VWAP calculates Volume Weighted Average Price
+// VWAP calculates Anchored Volume Weighted Average Price.
+//
+// This is a cumulative (anchored) VWAP that accumulates from the first bar
+// of the provided series. For daily OHLCV data (as provided by vnstock),
+// this represents the volume-weighted average over the full analysis window.
+// Standard intraday VWAP resets at market open — that variant requires
+// intraday bars with session boundaries.
 func VWAP(highs, lows, closes []float64, volumes []int64) []float64 {
 	n := len(closes)
 	if n == 0 || len(highs) != n || len(lows) != n || len(volumes) != n {

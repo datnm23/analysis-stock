@@ -1,0 +1,71 @@
+# Environment variables
+.env
+.env.local
+.env.production
+.env.staging
+
+# SSL/TLS certificates
+certs/
+*.crt
+*.key
+*.pem
+
+# Telegram session files
+*.session
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+dist/
+build/
+.eggs/
+.venv/
+venv/
+env/
+.coverage
+htmlcov/
+.pytest_cache/
+*.pyc
+
+# Go binaries
+go-services/api-gateway
+go-services/cmd/*/
+telegram-bot/telegram-bot
+*.exe
+*.out
+
+# ML Models (large binary files)
+python-sentiment/models/onnx/*.onnx
+python-sentiment/models/onnx/*.onnx.data
+python-sentiment/models/onnx/bpe.codes
+python-sentiment/models/onnx/vocab.txt
+
+# Data files (scraped/scheduled data)
+crawl-agent/data/
+python-sentiment/data/
+*/data/scheduled/
+*/data/scraped_*.json
+
+# Node.js
+node_modules/
+.next/
+out/
+web-dashboard/.next/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+.DS_Store
+
+# Logs
+*.log
+logs/
+
+# Docker volumes
+postgres-data/
+redis-data/
+minio-data/

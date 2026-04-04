@@ -1,4 +1,4 @@
-.PHONY: all build clean test run-api-gateway run-technical run-forecast run-orchestrator
+.PHONY: all build clean test test-indicators coverage fmt vet run-api-gateway run-technical run-forecast run-orchestrator
 
 # Go parameters
 GOCMD=go
@@ -26,10 +26,21 @@ clean:
 	rm -rf $(BUILD_DIR)
 
 test:
-	$(GOTEST) -v ./...
+	$(GOTEST) -v -race -timeout=5m ./...
 
 test-indicators:
-	$(GOTEST) -v ./internal/indicators/...
+	$(GOTEST) -v -race ./internal/indicators/...
+
+coverage:
+	$(GOTEST) -race -timeout=5m -coverprofile=coverage.out ./...
+	$(GOCMD) tool cover -html=coverage.out -o coverage.html
+	@echo "Coverage report: coverage.html"
+
+fmt:
+	$(GOCMD) fmt ./...
+
+vet:
+	$(GOCMD) vet ./...
 
 deps:
 	$(GOMOD) download
@@ -62,3 +73,24 @@ lint:
 # Generate mocks
 mocks:
 	mockgen -source=internal/services/technical_service.go -destination=internal/mocks/technical_service_mock.go
+
+# Database migrations (requires golang-migrate CLI)
+# Install: go install -tags 'postgres' github.com/golang-migrate/migrate/v4/cmd/migrate@latest
+DB_URL ?= postgres://vnstock:$${POSTGRES_PASSWORD}@localhost:5432/vnstock?sslmode=disable
+
+migrate-up:
+	migrate -database "$(DB_URL)" -path migrations up
+
+migrate-down:
+	migrate -database "$(DB_URL)" -path migrations down
+
+migrate-down-1:
+	migrate -database "$(DB_URL)" -path migrations down 1
+
+migrate-version:
+	migrate -database "$(DB_URL)" -path migrations version
+
+migrate-create:
+	@read -p "Migration name: " name; \
+	migrate create -ext sql -dir migrations -seq $$name
+

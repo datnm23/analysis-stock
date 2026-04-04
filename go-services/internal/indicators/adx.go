@@ -62,26 +62,39 @@ func CalculateADX(highs, lows, closes []float64, period int) *ADX {
 		}
 	}
 
-	// Calculate ADX (smoothed DX)
-	adxValues := wilderSmooth(dx, period)
+	// Calculate ADX using Wilder's averaging of DX values.
+	// First ADX = average of first `period` valid DX values (indices period..2*period-1).
+	// Subsequent: ADX[i] = (ADX[i-1] * (period-1) + DX[i]) / period
+	var adxVal float64
+	for i := period; i < period*2 && i < n; i++ {
+		adxVal += dx[i]
+	}
+	adxVal /= float64(period)
+	for i := period * 2; i < n; i++ {
+		adxVal = (adxVal*float64(period-1) + dx[i]) / float64(period)
+	}
 
 	return &ADX{
-		ADX:     adxValues[len(adxValues)-1],
+		ADX:     adxVal,
 		PlusDI:  plusDI[len(plusDI)-1],
 		MinusDI: minusDI[len(minusDI)-1],
 	}
 }
 
-// wilderSmooth applies Wilder's smoothing method
+// wilderSmooth applies Wilder's smoothing method.
+// Note: For directional movement (+DM/-DM), index 0 is always 0;
+// for True Range, index 0 holds a valid value (high-low of first bar).
+// We start the initial sum from index 1 because index 0 has no "previous close"
+// context and the standard Wilder approach uses period values starting from bar 1.
 func wilderSmooth(values []float64, period int) []float64 {
 	n := len(values)
-	if n < period {
+	if n < period+1 {
 		return nil
 	}
 
 	result := make([]float64, n)
 
-	// First value is sum of first period values
+	// First smoothed value is sum of values[1..period]
 	var sum float64
 	for i := 1; i <= period; i++ {
 		sum += values[i]

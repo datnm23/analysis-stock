@@ -1,12 +1,13 @@
 package middleware
 
 import (
+	"log/slog"
 	"time"
 
 	"github.com/gin-gonic/gin"
 )
 
-// Logger is a custom logging middleware
+// Logger is a custom structured logging middleware using slog.
 func Logger() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		start := time.Now()
@@ -22,14 +23,12 @@ func Logger() gin.HandlerFunc {
 			path = path + "?" + raw
 		}
 
-		// Log format: status | latency | method | path
-		gin.DefaultWriter.Write([]byte(
-			c.ClientIP() + " | " +
-				time.Now().Format("2006/01/02 - 15:04:05") + " | " +
-				string(rune(status)) + " | " +
-				latency.String() + " | " +
-				c.Request.Method + " | " +
-				path + "\n",
-		))
+		slog.Info("HTTP request",
+			"status", status,
+			"latency", latency.String(),
+			"method", c.Request.Method,
+			"path", path,
+			"client_ip", c.ClientIP(),
+		)
 	}
 }

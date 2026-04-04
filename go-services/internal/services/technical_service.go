@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
+	"math"
 	"sync"
 	"time"
 
@@ -15,11 +17,14 @@ import (
 	"vnstock-hybrid/pkg/vnstock"
 )
 
+// batchConcurrencyLimit is the max number of concurrent symbol analyses in AnalyzeBatch.
+const batchConcurrencyLimit = 10
+
 // TechnicalService handles technical analysis
 type TechnicalService struct {
 	db           *gorm.DB
 	redis        *redis.Client
-	marketClient *vnstock.Client
+	marketClient vnstock.MarketDataProvider
 }
 
 // TechnicalResult represents the result of technical analysis
@@ -42,6 +47,9 @@ type TechnicalResult struct {
 	Confidence  float64                     `json:"confidence"`
 	Score       float64                     `json:"score"`
 	Reasons     []string                    `json:"reasons"`
+	// Market context (populated by forecast service when available)
+	VNIndexChangePct float64               `json:"vnindex_change_pct,omitempty"`
+	ForeignNetBuyVol int64                 `json:"foreign_net_buy_vol,omitempty"`
 }
 
 // PriceData represents current price information
@@ -55,7 +63,7 @@ type PriceData struct {
 }
 
 // NewTechnicalService creates a new technical analysis service
-func NewTechnicalService(db *gorm.DB, redis *redis.Client, client *vnstock.Client) *TechnicalService {
+func NewTechnicalService(db *gorm.DB, redis *redis.Client, client vnstock.MarketDataProvider) *TechnicalService {
 	return &TechnicalService{
 		db:           db,
 		redis:        redis,
@@ -77,10 +85,13 @@ func (s *TechnicalService) Analyze(ctx context.Context, symbol string) (*Technic
 		}
 	}
 
-	// Fetch historical data (use mock data for now)
-	history := s.marketClient.GetMockData(symbol, 100)
+	// Fetch real historical data from vnstock API
+	history, err := s.marketClient.GetHistoricalData(ctx, symbol, 100)
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch market data for %s: %w", symbol, err)
+	}
 	if len(history) < 26 {
-		return nil, fmt.Errorf("insufficient data for analysis")
+		return nil, fmt.Errorf("insufficient data for analysis: got %d points, need 26+", len(history))
 	}
 
 	// Extract price arrays
@@ -196,7 +207,9 @@ func (s *TechnicalService) Analyze(ctx context.Context, symbol string) (*Technic
 	// Cache result
 	if s.redis != nil {
 		if data, err := json.Marshal(result); err == nil {
-			s.redis.Set(ctx, cacheKey, data, 5*time.Minute)
+			if err := s.redis.Set(ctx, cacheKey, data, 5*time.Minute).Err(); err != nil {
+				slog.Warn("Failed to cache technical result", "symbol", symbol, "error", err)
+			}
 		}
 	}
 
@@ -211,29 +224,45 @@ func (s *TechnicalService) AnalyzeBatch(ctx context.Context, symbols []string) (
 	results := make(map[string]*TechnicalResult)
 	var mu sync.Mutex
 	var wg sync.WaitGroup
+	var failCount int
 
 	// Limit concurrency
-	semaphore := make(chan struct{}, 10)
+	semaphore := make(chan struct{}, batchConcurrencyLimit)
 
 	for _, sym := range symbols {
 		wg.Add(1)
 		go func(symbol string) {
 			defer wg.Done()
-			semaphore <- struct{}{}
+
+			// Respect parent context cancellation
+			select {
+			case <-ctx.Done():
+				slog.Warn("Context cancelled, skipping analysis", "symbol", symbol)
+				return
+			case semaphore <- struct{}{}:
+			}
 			defer func() { <-semaphore }()
 
 			result, err := s.Analyze(ctx, symbol)
-			if err != nil {
-				return // Skip failed symbols
-			}
-
 			mu.Lock()
+			defer mu.Unlock()
+			if err != nil {
+				failCount++
+				slog.Warn("Batch analysis failed for symbol", "symbol", symbol, "error", err)
+				return
+			}
 			results[symbol] = result
-			mu.Unlock()
 		}(sym)
 	}
 
 	wg.Wait()
+
+	if failCount > 0 && len(results) == 0 {
+		return results, fmt.Errorf("all %d symbols failed analysis", failCount)
+	}
+	if failCount > 0 {
+		slog.Warn("Partial batch failure", "failed", failCount, "succeeded", len(results))
+	}
 	return results, nil
 }
 
@@ -245,7 +274,7 @@ func (s *TechnicalService) generateSignals(
 	stoch *indicators.Stochastic,
 	adx *indicators.ADX,
 	sma20, sma50 float64,
-	currentVolume, avgVolume float64,
+	currentVolume, previousVolume float64,
 ) (signal string, confidence, score float64, reasons []string) {
 	score = 0
 	reasons = []string{}
@@ -327,18 +356,24 @@ func (s *TechnicalService) generateSignals(
 		}
 	}
 
-	// ADX (Trend Strength)
+	// ADX (Trend Strength) — amplifies directional signals when trending, dampens when ranging
 	if adx != nil {
 		if adx.ADX > 25 {
-			reasons = append(reasons, fmt.Sprintf("ADX = %.1f - Xu hướng mạnh", adx.ADX))
+			if score > 0 {
+				score += 2
+			} else if score < 0 {
+				score -= 2
+			}
+			reasons = append(reasons, fmt.Sprintf("ADX = %.1f - Xu hướng mạnh, khuếch đại tín hiệu", adx.ADX))
 		} else {
-			reasons = append(reasons, fmt.Sprintf("ADX = %.1f - Thị trường sideway", adx.ADX))
+			score *= 0.8
+			reasons = append(reasons, fmt.Sprintf("ADX = %.1f - Thị trường sideway, giảm tín hiệu", adx.ADX))
 		}
 	}
 
 	// Volume Analysis
-	if avgVolume > 0 {
-		volumeRatio := currentVolume / avgVolume
+	if previousVolume > 0 {
+		volumeRatio := currentVolume / previousVolume
 		if volumeRatio > 1.5 {
 			reasons = append(reasons, fmt.Sprintf("Khối lượng tăng %.1fx - Dòng tiền mạnh", volumeRatio))
 			score += 0.5
@@ -357,13 +392,13 @@ func (s *TechnicalService) generateSignals(
 		confidence = min(85, 60+(score-2)*5)
 	} else if score >= -2 {
 		signal = "HOLD"
-		confidence = 50 + abs(score)*5
+		confidence = 50 + math.Abs(score)*5
 	} else if score >= -4 {
 		signal = "SELL"
-		confidence = min(85, 60+abs(score+2)*5)
+		confidence = min(85, 60+math.Abs(score+2)*5)
 	} else {
 		signal = "STRONG_SELL"
-		confidence = min(95, 70+abs(score+4)*5)
+		confidence = min(95, 70+math.Abs(score+4)*5)
 	}
 
 	return signal, confidence, score, reasons
@@ -414,19 +449,7 @@ func (s *TechnicalService) storeResult(ctx context.Context, result *TechnicalRes
 		analysis.ADX = &result.ADX.ADX
 	}
 
-	s.db.Create(analysis)
-}
-
-func abs(x float64) float64 {
-	if x < 0 {
-		return -x
+	if err := s.db.Create(analysis).Error; err != nil {
+		slog.Warn("Failed to store technical analysis", "symbol", result.Symbol, "error", err)
 	}
-	return x
-}
-
-func min(a, b float64) float64 {
-	if a < b {
-		return a
-	}
-	return b
 }

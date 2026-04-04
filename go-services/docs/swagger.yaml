@@ -1,0 +1,200 @@
+definitions:
+  handlers.FullAnalysisRequest:
+    properties:
+      include_forecast:
+        type: boolean
+      include_sentiment:
+        type: boolean
+      symbols:
+        items:
+          type: string
+        maxItems: 50
+        minItems: 1
+        type: array
+    required:
+    - symbols
+    type: object
+  handlers.TechnicalBatchRequest:
+    properties:
+      symbols:
+        items:
+          type: string
+        maxItems: 50
+        minItems: 1
+        type: array
+    required:
+    - symbols
+    type: object
+info:
+  contact: {}
+paths:
+  /api/v1/analyze:
+    post:
+      consumes:
+      - application/json
+      description: Perform combined technical and sentiment analysis on multiple symbols
+      parameters:
+      - description: Analysis request
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/handlers.FullAnalysisRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Full stock analysis
+      tags:
+      - analysis
+  /api/v1/sentiment:
+    post:
+      consumes:
+      - application/json
+      description: Analyze sentiment of Vietnamese stock news
+      parameters:
+      - description: Sentiment request
+        in: body
+        name: request
+        required: true
+        schema:
+          additionalProperties: true
+          type: object
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "503":
+          description: Service Unavailable
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Sentiment analysis
+      tags:
+      - sentiment
+  /api/v1/technical/{symbol}:
+    get:
+      consumes:
+      - application/json
+      description: Returns technical indicators and signals for a single stock symbol
+      parameters:
+      - description: Stock symbol (e.g., VNM)
+        in: path
+        name: symbol
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Get technical analysis for a symbol
+      tags:
+      - technical
+  /api/v1/technical/batch:
+    post:
+      consumes:
+      - application/json
+      description: Returns technical indicators for multiple stock symbols
+      parameters:
+      - description: Batch request
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/handlers.TechnicalBatchRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Batch technical analysis
+      tags:
+      - technical
+  /health:
+    get:
+      description: Returns the health status of the API gateway
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Health check
+      tags:
+      - health
+  /ready:
+    get:
+      description: Returns the readiness status and component health
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+      summary: Readiness check
+      tags:
+      - health
+swagger: "2.0"
