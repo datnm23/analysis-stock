@@ -2,10 +2,14 @@ package services
 
 import (
 	"context"
+	"encoding/json"
 	"sync/atomic"
 	"testing"
 	"time"
 
+	"github.com/alicebob/miniredis/v2"
+	"github.com/redis/go-redis/v9"
+	"github.com/stretchr/testify/assert"
 	"vnstock-hybrid/internal/indicators"
 	"vnstock-hybrid/pkg/vnstock"
 )
@@ -224,4 +228,86 @@ func TestTechnicalService_AnalyzeInsufficientData(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error for insufficient data")
 	}
+}
+
+// ---------------------------------------------------------------------------
+// fetchRecentNews tests
+// ---------------------------------------------------------------------------
+
+func newTestRedis(t *testing.T) (*miniredis.Miniredis, *redis.Client) {
+	t.Helper()
+	mr := miniredis.RunT(t)
+	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
+	return mr, rdb
+}
+
+func TestFetchRecentNews_WithData(t *testing.T) {
+	mr, rdb := newTestRedis(t)
+	defer mr.Close()
+
+	item := newsItem{
+		ID:          "n1",
+		Title:       "Vinamilk tăng trưởng Q1",
+		Content:     "Doanh thu tăng 15% so với cùng kỳ",
+		Source:      "cafef",
+		PublishedAt: "2026-04-18T08:00:00+07:00",
+	}
+	raw, _ := json.Marshal(item)
+	mr.Lpush("news:VNM:recent", string(raw))
+
+	svc := &ForecastService{redis: rdb}
+	items := svc.fetchRecentNews(context.Background(), "VNM")
+
+	assert.Len(t, items, 1)
+	assert.Contains(t, items[0].Content, "Vinamilk tăng trưởng Q1")
+	assert.Equal(t, "cafef", items[0].Source)
+	assert.False(t, items[0].PublishedAt.IsZero())
+}
+
+func TestFetchRecentNews_MultipleItems(t *testing.T) {
+	mr, rdb := newTestRedis(t)
+	defer mr.Close()
+
+	for i := 0; i < 5; i++ {
+		raw, _ := json.Marshal(newsItem{
+			ID: "n" + string(rune('0'+i)), Title: "News", Content: "Content", Source: "vnexpress",
+		})
+		mr.Lpush("news:HPG:recent", string(raw))
+	}
+
+	svc := &ForecastService{redis: rdb}
+	items := svc.fetchRecentNews(context.Background(), "HPG")
+
+	assert.Len(t, items, 5)
+}
+
+func TestFetchRecentNews_EmptyRedis(t *testing.T) {
+	_, rdb := newTestRedis(t)
+
+	svc := &ForecastService{redis: rdb}
+	items := svc.fetchRecentNews(context.Background(), "VNM")
+
+	assert.Nil(t, items)
+}
+
+func TestFetchRecentNews_NilRedis(t *testing.T) {
+	svc := &ForecastService{redis: nil}
+	items := svc.fetchRecentNews(context.Background(), "VNM")
+	assert.Nil(t, items)
+}
+
+func TestFetchRecentNews_SkipsBadJSON(t *testing.T) {
+	mr, rdb := newTestRedis(t)
+	defer mr.Close()
+
+	// Push one bad item and one good item
+	mr.Lpush("news:VCB:recent", "not-valid-json")
+	raw, _ := json.Marshal(newsItem{ID: "ok", Title: "Good news", Content: "Valid", Source: "vietstock"})
+	mr.Lpush("news:VCB:recent", string(raw))
+
+	svc := &ForecastService{redis: rdb}
+	items := svc.fetchRecentNews(context.Background(), "VCB")
+
+	assert.Len(t, items, 1)
+	assert.Equal(t, "ok", items[0].ID)
 }

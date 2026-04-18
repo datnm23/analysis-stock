@@ -34,6 +34,7 @@ class ScrapeScheduler:
         interval_minutes: int = 30,
         data_dir: str = "data/scheduled",
         market_hours_only: bool = True,
+        redis_client=None,
     ):
         self.interval = interval_minutes * 60
         self.data_dir = Path(data_dir)
@@ -43,6 +44,32 @@ class ScrapeScheduler:
         self._running = False
         self._last_run: Optional[datetime] = None
         self._stats: Dict = {"runs": 0, "total_items": 0, "errors": 0}
+
+        self._news_publisher = None
+        self._article_generator = None
+        if redis_client is not None:
+            from app.config import get_settings
+            from app.services.news_publisher import NewsPublisher
+            from app.services.article_generator import ArticleGenerator
+            s = get_settings()
+            self._news_publisher = NewsPublisher(
+                redis_client,
+                max_items=s.news_redis_max_items,
+                ttl_hours=s.news_redis_ttl_hours,
+            )
+            if s.anthropic_api_key:
+                self._article_generator = ArticleGenerator(
+                    redis_client=redis_client,
+                    anthropic_api_key=s.anthropic_api_key,
+                    go_services_url=s.go_services_internal_url,
+                    go_services_key=s.go_services_internal_key,
+                    telegram_bot_token=os.environ.get("TELEGRAM_BOT_TOKEN", ""),
+                    telegram_chat_id=s.telegram_admin_chat_id,
+                    dashboard_url=s.dashboard_url,
+                    claude_model=s.article_claude_model,
+                    max_daily=s.article_max_daily,
+                    hot_symbols_count=s.article_hot_symbols_count,
+                )
 
     def _is_market_hours(self) -> bool:
         now = datetime.now(ICT)
@@ -140,6 +167,29 @@ class ScrapeScheduler:
         for item in all_items:
             all_symbols.update(s for s in item.get("symbols", []) if s not in noise)
 
+        # Publish to Redis per symbol (non-blocking — failure does not abort scrape)
+        if self._news_publisher and all_items:
+            pub_stats = await self._news_publisher.publish_batch(all_items)
+            stats["redis_published"] = pub_stats
+            logger.info(
+                "Redis publish: %d items → %d symbol keys",
+                pub_stats["items_published"],
+                pub_stats["symbol_keys_updated"],
+            )
+
+        # Generate article drafts for hot symbols (non-blocking)
+        if self._article_generator and all_items:
+            try:
+                article_stats = await self._article_generator.run()
+                stats["articles_generated"] = article_stats
+                logger.info(
+                    "Articles: %d created from %d hot symbols",
+                    article_stats["articles_created"],
+                    article_stats["symbols_processed"],
+                )
+            except Exception as e:
+                logger.warning("Article generation error: %s", e)
+
         # Save to JSON
         timestamp = datetime.now(ICT).strftime("%Y%m%d_%H%M%S")
         output_file = self.data_dir / f"scrape_{timestamp}.json"
@@ -211,7 +261,7 @@ class ScrapeScheduler:
 _scheduler: Optional[ScrapeScheduler] = None
 
 
-def get_scheduler() -> ScrapeScheduler:
+def get_scheduler(redis_client=None) -> ScrapeScheduler:
     global _scheduler
     if _scheduler is None:
         interval = int(os.environ.get("SCRAPE_INTERVAL_MINUTES", "30"))
@@ -219,5 +269,6 @@ def get_scheduler() -> ScrapeScheduler:
         _scheduler = ScrapeScheduler(
             interval_minutes=interval,
             market_hours_only=market_only,
+            redis_client=redis_client,
         )
     return _scheduler

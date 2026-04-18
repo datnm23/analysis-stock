@@ -15,6 +15,20 @@ import (
 	"vnstock-hybrid/internal/models"
 )
 
+// newsItem mirrors the JSON stored by crawl-agent in Redis (news:{symbol}:recent).
+type newsItem struct {
+	ID          string `json:"id"`
+	Title       string `json:"title"`
+	Content     string `json:"content"`
+	Source      string `json:"source"`
+	PublishedAt string `json:"published_at"`
+}
+
+const (
+	newsRedisKeyPrefix = "news"
+	newsMaxItems       = 10
+)
+
 // ForecastService combines technical and sentiment analysis for forecasts
 type ForecastService struct {
 	db              *gorm.DB
@@ -100,15 +114,35 @@ func (s *ForecastService) Forecast(ctx context.Context, symbol string) (*Forecas
 	sentConfidence := 0.0 // track to feed adaptive weights
 
 	if s.sentimentClient != nil {
-		sentResult, err := s.sentimentClient.Analyze(ctx, []TextItem{
-			{ID: symbol, Content: fmt.Sprintf("Phân tích cổ phiếu %s", symbol)},
-		})
+		// Use real news from Redis (populated by crawl-agent); fall back to placeholder
+		newsItems := s.fetchRecentNews(ctx, symbol)
+		if len(newsItems) == 0 {
+			newsItems = []TextItem{
+				{ID: symbol, Content: fmt.Sprintf("Phân tích cổ phiếu %s", symbol)},
+			}
+			slog.Debug("No recent news in Redis, using placeholder", "symbol", symbol)
+		}
+
+		sentResult, err := s.sentimentClient.Analyze(ctx, newsItems)
 		if err != nil {
 			slog.Warn("Sentiment service unavailable, using neutral score", "symbol", symbol, "error", err)
 			sentReasons = append(sentReasons, "Sentiment service unavailable — using neutral score")
 		} else if len(sentResult.Results) > 0 {
-			sentScore = sentimentToScore(sentResult.Results[0].Sentiment, sentResult.Results[0].Confidence)
-			sentConfidence = sentResult.Results[0].Confidence
+			// Aggregate sentiment across all news items (average score)
+			totalScore := 0.0
+			totalConf := 0.0
+			for _, r := range sentResult.Results {
+				totalScore += sentimentToScore(r.Sentiment, r.Confidence)
+				totalConf += r.Confidence
+			}
+			n := float64(len(sentResult.Results))
+			sentScore = totalScore / n
+			sentConfidence = totalConf / n
+			if len(newsItems) > 1 || newsItems[0].ID != symbol {
+				sentReasons = append(sentReasons,
+					fmt.Sprintf("Sentiment based on %d recent news articles", len(newsItems)),
+				)
+			}
 		}
 	}
 
@@ -195,6 +229,41 @@ func (s *ForecastService) Forecast(ctx context.Context, symbol string) (*Forecas
 	s.storeForecast(ctx, result)
 
 	return result, nil
+}
+
+// fetchRecentNews reads recent news for a symbol from Redis.
+// Returns nil when no news is available so callers degrade gracefully.
+func (s *ForecastService) fetchRecentNews(ctx context.Context, symbol string) []TextItem {
+	if s.redis == nil {
+		return nil
+	}
+	key := fmt.Sprintf("%s:%s:recent", newsRedisKeyPrefix, symbol)
+	raw, err := s.redis.LRange(ctx, key, 0, int64(newsMaxItems-1)).Result()
+	if err != nil || len(raw) == 0 {
+		return nil
+	}
+	items := make([]TextItem, 0, len(raw))
+	for _, r := range raw {
+		var n newsItem
+		if err := json.Unmarshal([]byte(r), &n); err != nil {
+			continue
+		}
+		content := strings.TrimSpace(n.Title + " " + n.Content)
+		if content == "" {
+			continue
+		}
+		var publishedAt time.Time
+		if n.PublishedAt != "" {
+			publishedAt, _ = time.Parse(time.RFC3339, n.PublishedAt)
+		}
+		items = append(items, TextItem{
+			ID:          n.ID,
+			Content:     content,
+			Source:      n.Source,
+			PublishedAt: publishedAt,
+		})
+	}
+	return items
 }
 
 func (s *ForecastService) storeForecast(ctx context.Context, result *ForecastResult) {

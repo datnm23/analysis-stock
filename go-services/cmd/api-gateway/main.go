@@ -55,6 +55,8 @@ func main() {
 	sentimentClient := services.NewSentimentClient(cfg.Services.SentimentURL)
 	forecastSvc := services.NewForecastService(infra.DB, infra.Redis, technicalSvc, sentimentClient)
 	orchestratorSvc := services.NewOrchestratorService(infra.DB, infra.Redis, forecastSvc)
+	articleSvc := services.NewArticleService(infra.DB)
+	internalKey := os.Getenv("INTERNAL_API_KEY")
 
 	// Async job queue (Redis Streams)
 	var jobQueue *services.JobQueue
@@ -109,6 +111,12 @@ func main() {
 			v1.POST("/analysis/queue", handlers.EnqueueAnalysis(jobQueue))
 			v1.GET("/analysis/status/:id", handlers.AnalysisStatus(jobQueue))
 		}
+
+		// Articles (blog)
+		v1.GET("/articles", handlers.ListArticles(articleSvc))
+		v1.GET("/articles/:slug", handlers.GetArticleBySlug(articleSvc))
+		v1.POST("/articles", handlers.CreateArticle(articleSvc, internalKey))
+		v1.PATCH("/articles/:id/status", handlers.UpdateArticleStatus(articleSvc, internalKey))
 	}
 
 	// Legacy routes (n8n compatibility)

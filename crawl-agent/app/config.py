@@ -39,6 +39,20 @@ class Settings(BaseSettings):
     telegram_session_name: str = "vnstock_crawl"
     telegram_channels: str = "chungkhoanUG,ChungkhoanGalaxy,finbotrealtimenews"
 
+    # Redis news cache
+    news_redis_max_items: int = 20
+    news_redis_ttl_hours: int = 24
+
+    # Article generation (Claude API)
+    anthropic_api_key: str = ""
+    article_max_daily: int = 10
+    article_hot_symbols_count: int = 10
+    article_claude_model: str = "claude-haiku-4-5-20251001"
+    go_services_internal_url: str = "http://go-services:8080"
+    go_services_internal_key: str = ""
+    dashboard_url: str = "http://localhost:3000"
+    telegram_admin_chat_id: str = ""
+
     # Feature flags
     enable_firecrawl: bool = True
     enable_telegram: bool = True

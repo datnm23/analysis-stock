@@ -68,7 +68,7 @@ async def lifespan(app: FastAPI):
     scheduler = None
     if not settings.debug:
         from app.scheduler import get_scheduler
-        scheduler = get_scheduler()
+        scheduler = get_scheduler(redis_client=redis_client)
         scheduler.start()
 
     logger.info("Crawl agent ready on port %d", settings.port)

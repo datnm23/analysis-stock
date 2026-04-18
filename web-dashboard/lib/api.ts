@@ -141,6 +141,53 @@ export async function analyzeSentiment(
   });
 }
 
+// ---- Articles (blog) ----
+
+export interface Article {
+  id: number;
+  symbol: string;
+  title: string;
+  slug: string;
+  content: string;
+  summary: string;
+  source_urls: string;
+  status: "draft" | "published" | "rejected";
+  published_at?: string;
+  created_at: string;
+}
+
+export interface ArticleListResult {
+  articles: Article[];
+  total: number;
+  limit: number;
+  offset: number;
+}
+
+const ADMIN_KEY = process.env.NEXT_PUBLIC_ADMIN_KEY || "";
+
+export async function fetchDraftArticles(): Promise<Article[]> {
+  const res = await fetch(`${API_BASE}/articles?status=draft&limit=50`, {
+    cache: "no-store",
+  });
+  if (!res.ok) return [];
+  const data: ArticleListResult = await res.json();
+  return data.articles ?? [];
+}
+
+export async function updateArticleStatus(
+  id: number,
+  status: "published" | "rejected"
+): Promise<void> {
+  await fetch(`${API_BASE}/articles/${id}/status`, {
+    method: "PATCH",
+    headers: {
+      "Content-Type": "application/json",
+      "X-Internal-Key": ADMIN_KEY,
+    },
+    body: JSON.stringify({ status }),
+  });
+}
+
 // ---- Queue (async analysis) ----
 
 export async function enqueueAnalysis(symbol: string): Promise<{ job_id: string }> {

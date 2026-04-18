@@ -341,9 +341,22 @@ async def scrape_pipeline(request: Request):
     # Sort by sentiment confidence
     enriched.sort(key=lambda x: x.get("sentiment_confidence", 0), reverse=True)
 
+    # Step 4: Publish to Redis per symbol for ForecastService consumption
+    stats = dict(scrape_result["stats"])
+    redis_client = getattr(request.app.state, "redis_client", None)
+    if redis_client:
+        from app.services.news_publisher import NewsPublisher
+        publisher = NewsPublisher(
+            redis_client,
+            max_items=settings.news_redis_max_items,
+            ttl_hours=settings.news_redis_ttl_hours,
+        )
+        pub_stats = await publisher.publish_batch(items)
+        stats["redis_published"] = pub_stats
+
     return {
         "total": len(enriched),
-        "stats": scrape_result["stats"],
+        "stats": stats,
         "symbols_found": scrape_result["symbols_found"],
         "items": enriched,
     }

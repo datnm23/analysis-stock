@@ -8,6 +8,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Auto Blog pipeline: crawl-agent → Claude Haiku API → PostgreSQL → admin review → Next.js blog site (port 3001)
+- Go services articles API (4 endpoints: GET/POST/PUT/DELETE)
+- ArticleGenerator service in crawl-agent for AI-powered content synthesis
+- Admin review UI in web-dashboard for blog content moderation
+- Blog site as new Next.js application
 - JWT authentication middleware for Go API Gateway
 - API key authentication middleware for service-to-service communication
 - CORS hardening with configurable origins
@@ -18,10 +23,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - API documentation (authentication guide)
 
 ### Changed
-- Updated `.env.example` with security and CORS configuration
+- Updated `.env.example` with ANTHROPIC_API_KEY and blog configuration
 - Updated Python config to support API key and CORS settings
 - Updated Go config to support JWT and API key settings
 - Updated Python sentiment service to use configurable CORS
+- Extended go-services with articles API endpoints
 
 ### Fixed
 - Fixed duplicate import in auth.go middleware

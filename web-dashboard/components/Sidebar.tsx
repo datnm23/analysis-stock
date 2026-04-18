@@ -57,6 +57,11 @@ export default function Sidebar() {
                 📋 Báo Cáo
               </Link>
             </li>
+            <li>
+              <Link href="/admin/articles" className={pathname?.startsWith('/admin') ? 'active' : ''}>
+                ✍️ Duyệt Bài Viết
+              </Link>
+            </li>
           </ul>
         </nav>
       </aside>

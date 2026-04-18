@@ -25,6 +25,7 @@ graph TB
 
     subgraph "🔄 Crawl & Processing Layer"
         CRAWL["crawl-agent :8085<br/>Multi-tier Aggregation<br/>RSS + Telegram + Web + SourceChaser"]
+        AG["ArticleGenerator<br/>Claude Haiku API<br/>AI-powered synthesis"]
         FC["Firecrawl :3002<br/>HTML → Markdown<br/>Playwright + RabbitMQ"]
         PW["Playwright Service<br/>:3000<br/>Browser Rendering"]
         RMQ["RabbitMQ<br/>Job Queue"]
@@ -50,7 +51,8 @@ graph TB
 
     subgraph "📤 Output Layer"
         BOT["🤖 Telegram Bot<br/>Go :8084<br/>Alerts/Commands"]
-        DASH["🖥️ Web Dashboard<br/>Next.js :3000"]
+        DASH["🖥️ Web Dashboard<br/>Next.js :3000<br/>Admin Review UI"]
+        BLOG["📰 Blog Site<br/>Next.js :3001<br/>Public Articles"]
         EMAIL["📧 Email Alerts"]
     end
 
@@ -68,6 +70,8 @@ graph TB
     FC --> PW
     FC --> RMQ
     CRAWL --> SA
+    CRAWL --> AG
+    AG --> PG
     MKT --> GW
     N8N --> GW
     N8N --> S3
@@ -88,6 +92,9 @@ graph TB
     MO --> EMAIL
     GW --> PG
     GW --> RD
+    GW --> BLOG
+    DASH --> PG
+    BLOG --> PG
     PROM --> GRAF
 ```
 
@@ -488,7 +495,62 @@ sequenceDiagram
 | Overview | [page.tsx](file:///wsl.localhost/Ubuntu/home/datnm/projects/analysis-stock/web-dashboard/app/page.tsx) | Stats grid (buy/sell/hold signals), watchlist table, market summary |
 | Analysis | [analysis/page.tsx](file:///wsl.localhost/Ubuntu/home/datnm/projects/analysis-stock/web-dashboard/app/analysis/page.tsx) | Symbol picker, score breakdown bars, support/resistance, reasoning |
 | Reports | [reports/page.tsx](file:///wsl.localhost/Ubuntu/home/datnm/projects/analysis-stock/web-dashboard/app/reports/page.tsx) | Daily report viewer/generator, top picks table |
+| Blog Admin | [blog/page.tsx](file:///wsl.localhost/Ubuntu/home/datnm/projects/analysis-stock/web-dashboard/app/blog/page.tsx) | Review pending articles, approve/reject/publish |
 | API Client | [api.ts](file:///wsl.localhost/Ubuntu/home/datnm/projects/analysis-stock/web-dashboard/lib/api.ts) | Typed client + signal helpers |
+
+**Auto Blog Pipeline** ([blog-site/](file:///wsl.localhost/Ubuntu/home/datnm/projects/analysis-stock/blog-site/), [crawl-agent/app/article_generator.py](file:///wsl.localhost/Ubuntu/home/datnm/projects/analysis-stock/crawl-agent/app/article_generator.py), [go-services/internal/handlers/articles.go](file:///wsl.localhost/Ubuntu/home/datnm/projects/analysis-stock/go-services/internal/handlers/articles.go)):
+
+```mermaid
+graph TB
+    CRAWL["Crawl Agent<br/>Aggregated Stock News"]
+    AG["ArticleGenerator<br/>Claude Haiku API<br/>AI Content Synthesis"]
+    API["Articles API<br/>Go :8080<br/>4 Endpoints"]
+    DB["PostgreSQL<br/>articles table"]
+    DASH["Web Dashboard<br/>Admin Review UI"]
+    BLOG["Blog Site<br/>Next.js :3001<br/>Public Articles"]
+    
+    CRAWL -->|crawled_content| AG
+    AG -->|generated_article| API
+    API -->|POST /articles| DB
+    DASH -->|GET/PUT (review)| API
+    API -->|published_articles| BLOG
+    DB -->|query| BLOG
+```
+
+**Architecture:**
+- **ArticleGenerator** (crawl-agent): Receives aggregated stock news from crawlers, synthesizes with Claude Haiku API to generate complete blog articles with title, content, metadata
+- **Articles API** (go-services): 4 endpoints: `POST /articles` (create), `GET /articles` (list), `GET /articles/:id` (detail), `PUT /articles/:id` (update status)
+- **Web Dashboard Admin**: Review pending articles, approve/reject, mark for publication
+- **Blog Site** (blog-site/): Public-facing Next.js app displaying published articles (list view with pagination, detail view with stock symbols)
+
+**Database Schema:**
+```sql
+CREATE TABLE articles (
+    id BIGSERIAL PRIMARY KEY,
+    title VARCHAR(255) NOT NULL,
+    slug VARCHAR(255) UNIQUE NOT NULL,
+    content TEXT NOT NULL,
+    excerpt VARCHAR(500),
+    symbols TEXT[] NOT NULL,
+    status VARCHAR(20) DEFAULT 'pending', -- pending, approved, rejected, published
+    generated_at TIMESTAMP,
+    reviewed_at TIMESTAMP,
+    published_at TIMESTAMP,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    INDEX idx_status (status),
+    INDEX idx_published_at (published_at DESC)
+);
+```
+
+**Environment Variables:**
+```bash
+ANTHROPIC_API_KEY           # Claude Haiku API key for ArticleGenerator
+GO_SERVICES_INTERNAL_URL    # Internal go-services URL for articles API
+INTERNAL_API_KEY            # Service-to-service authentication
+```
+
+---
 
 **Telegram Bot** ([telegram-bot/](file:///wsl.localhost/Ubuntu/home/datnm/projects/analysis-stock/telegram-bot/)):
 - [main.go](file:///wsl.localhost/Ubuntu/home/datnm/projects/analysis-stock/telegram-bot/main.go) — Bot lifecycle (webhook or polling mode)
@@ -607,17 +669,18 @@ graph LR
 | 11 | firecrawl-api | vnstock-firecrawl | 3002 | crawl | **4GB** | ✅ |
 | 12 | firecrawl-playwright | vnstock-firecrawl-pw | 3000 | crawl | **2GB** | ✅ |
 | 13 | firecrawl-rabbitmq | vnstock-firecrawl-rmq | - | crawl | - | ✅ |
-| 14 | nginx | vnstock-nginx | 80/443 | production | - | ✅ |
-| 15 | prometheus | vnstock-prometheus | 9090 | monitoring | - | ✅ |
-| 16 | grafana | vnstock-grafana | 3001 | monitoring | - | ✅ |
-| 17 | jaeger | vnstock-jaeger | 16686 | monitoring | - | ✅ |
-| 18 | minio | vnstock-minio | 9000/9001 | development | - | ✅ |
+| 14 | blog-site | vnstock-blog | 3001 | default | - | ✅ |
+| 15 | nginx | vnstock-nginx | 80/443 | production | - | ✅ |
+| 16 | prometheus | vnstock-prometheus | 9090 | monitoring | - | ✅ |
+| 17 | grafana | vnstock-grafana | 3001 | monitoring | - | ✅ |
+| 18 | jaeger | vnstock-jaeger | 16686 | monitoring | - | ✅ |
+| 19 | minio | vnstock-minio | 9000/9001 | development | - | ✅ |
 
 **Docker Profiles:**
 
 | Profile | Services | Use Case |
 |---------|----------|----------|
-| default | 1-5, 7-9 | Core services (minimum) |
+| default | 1-5, 7-9, 14 | Core services + blog site |
 | bot | + telegram-bot | Telegram alerts |
 | crawl | + crawl-agent, firecrawl (3 services) | Data ingestion |
 | production | + nginx | Production deployment |
@@ -632,14 +695,15 @@ graph LR
 
 | Component | Language | Files | Key Metric |
 |-----------|----------|-------|------------|
-| Go Services | Go 1.24 | ~35 .go files | 9 indicators + 13 services |
+| Go Services | Go 1.24 | ~40 .go files | 9 indicators + 13 services + articles API |
 | Python Sentiment | Python 3.9 | ~25 .py files | PhoBERT 135M params |
-| Crawl Agent | Python | ~10 .py files | 6 scraper modules |
+| Crawl Agent | Python | ~12 .py files | 6 scraper modules + ArticleGenerator |
 | Telegram Bot | Go | 3 .go files | Webhook + Polling |
-| Web Dashboard | TypeScript | ~5 files | Next.js scaffold |
+| Web Dashboard | TypeScript | ~8 files | Stock analysis + admin blog review UI |
+| Blog Site | TypeScript | ~10 files | Next.js public blog with article list/detail |
 | n8n Workflows | JSON | 2 workflows | 28-node daily + error handler |
-| DB Migrations | SQL | 8 files (4 pairs) | 5 tables + partitions |
-| Docker | YAML/Dockerfile | 6 Dockerfiles | 17 services |
+| DB Migrations | SQL | 9 files (5 pairs) | 6 tables + partitions (added articles table) |
+| Docker | YAML/Dockerfile | 7 Dockerfiles | 19 services (added blog-site) |
 | CI/CD | YAML | 1 workflow | 6-job pipeline |
 | Docs | Markdown | 9+ guides | 4 SRS + 4 Implementation |
 
@@ -825,6 +889,14 @@ pie title "Project Maturity (Sprint 3 — Post-Implementation)"
 - [x] ~~Dynamic holiday calendar~~ — JSON config + `market_calendar.go`
 - [ ] Email notification system
 - [ ] Telegram scraper credentials setup
+
+### Sprint 5.5: Auto Blog Pipeline (1-2 tuần)
+
+- [x] ~~ArticleGenerator service (Claude Haiku API)~~ — crawl-agent/app/article_generator.py
+- [x] ~~Articles API (4 endpoints: CRUD)~~ — go-services/internal/handlers/articles.go
+- [x] ~~PostgreSQL articles table~~ — database migration with status/publishing workflow
+- [x] ~~Blog Admin UI~~ — web-dashboard blog review/approval interface
+- [x] ~~Public Blog Site~~ — blog-site/ Next.js app (port 3001) with article list/detail views
 
 ### Sprint 6: Scale & Reliability (2-3 tuần)
 
