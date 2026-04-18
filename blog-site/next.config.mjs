@@ -2,7 +2,13 @@
 const nextConfig = {
   images: {
     remotePatterns: [
-      // MinIO / S3-compatible storage — wildcard covers any configured endpoint
+      // Google Drive public image URLs
+      {
+        protocol: "https",
+        hostname: "drive.google.com",
+        pathname: "/uc",
+      },
+      // MinIO / S3-compatible storage
       {
         protocol: "http",
         hostname: "**",

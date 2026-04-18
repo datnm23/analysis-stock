@@ -59,11 +59,16 @@ class Settings(BaseSettings):
     # Article generation — image pipeline (optional)
     enable_image_generation: bool = False
     gemini_image_model: str = "gemini-2.0-flash-preview-image-generation"
+    image_storage_backend: str = "s3"  # s3 | gdrive
+    # S3/MinIO backend
     s3_endpoint: str = ""
     s3_bucket: str = "blog-images"
     s3_access_key: str = ""
     s3_secret_key: str = ""
     s3_public_url: str = ""
+    # Google Drive backend
+    gdrive_credentials_json: str = ""  # service account JSON as string
+    gdrive_folder_id: str = ""         # folder ID to upload images into
 
     # Feature flags
     enable_firecrawl: bool = True

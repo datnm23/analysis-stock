@@ -1,6 +1,7 @@
-"""Image generation via Gemini + upload to S3/MinIO."""
+"""Image generation via Gemini + upload to S3/MinIO or Google Drive."""
 import asyncio
 import base64
+import json
 import logging
 import re
 from typing import Optional
@@ -29,21 +30,29 @@ class ImagePipeline:
         gemini_image_model: str = "gemini-2.0-flash-preview-image-generation",
         anthropic_api_key: str = "",
         claude_model: str = "claude-haiku-4-5-20251001",
+        storage_backend: str = "s3",
+        # S3/MinIO
         s3_endpoint: str = "",
         s3_bucket: str = "blog-images",
         s3_access_key: str = "",
         s3_secret_key: str = "",
         s3_public_url: str = "",
+        # Google Drive
+        gdrive_credentials_json: str = "",
+        gdrive_folder_id: str = "",
     ):
         self._gemini_key = gemini_api_key
         self._gemini_image_model = gemini_image_model
         self._anthropic_key = anthropic_api_key
         self._claude_model = claude_model
+        self._storage_backend = storage_backend
         self._s3_endpoint = s3_endpoint
         self._s3_bucket = s3_bucket
         self._s3_access_key = s3_access_key
         self._s3_secret_key = s3_secret_key
         self._s3_public_url = s3_public_url.rstrip("/")
+        self._gdrive_credentials_json = gdrive_credentials_json
+        self._gdrive_folder_id = gdrive_folder_id
 
     async def build_image_prompt(self, symbol: str, summary: str) -> str:
         """Use Claude Haiku to generate a concise English image prompt."""
@@ -101,6 +110,12 @@ class ImagePipeline:
         return None
 
     async def upload_image(self, key: str, image_bytes: bytes) -> Optional[str]:
+        """Upload image bytes using the configured storage backend."""
+        if self._storage_backend == "gdrive":
+            return await self._upload_gdrive(key, image_bytes)
+        return await self._upload_s3(key, image_bytes)
+
+    async def _upload_s3(self, key: str, image_bytes: bytes) -> Optional[str]:
         """Upload PNG bytes to S3/MinIO, return public URL."""
         if not self._s3_endpoint or not self._s3_access_key:
             logger.warning("S3 not configured, skipping image upload")
@@ -131,9 +146,60 @@ class ImagePipeline:
             logger.warning("S3 upload failed: %s", exc)
         return None
 
+    async def _upload_gdrive(self, key: str, image_bytes: bytes) -> Optional[str]:
+        """Upload PNG bytes to Google Drive, return public view URL."""
+        if not self._gdrive_credentials_json:
+            logger.warning("GDRIVE_CREDENTIALS_JSON not set, skipping upload")
+            return None
+        try:
+            creds_dict = json.loads(self._gdrive_credentials_json)
+        except json.JSONDecodeError as exc:
+            logger.warning("GDRIVE_CREDENTIALS_JSON is not valid JSON: %s", exc)
+            return None
+
+        # Filename = last path component (e.g. "articles/VNM/20260418.png" → "VNM-20260418.png")
+        filename = key.replace("/", "-")
+
+        try:
+            from google.oauth2 import service_account
+            from googleapiclient.discovery import build
+            from googleapiclient.http import MediaInMemoryUpload
+
+            def _do_upload() -> str:
+                creds = service_account.Credentials.from_service_account_info(
+                    creds_dict,
+                    scopes=["https://www.googleapis.com/auth/drive.file"],
+                )
+                service = build("drive", "v3", credentials=creds, cache_discovery=False)
+
+                metadata: dict = {"name": filename}
+                if self._gdrive_folder_id:
+                    metadata["parents"] = [self._gdrive_folder_id]
+
+                media = MediaInMemoryUpload(image_bytes, mimetype="image/png", resumable=False)
+                file = service.files().create(
+                    body=metadata,
+                    media_body=media,
+                    fields="id",
+                ).execute()
+
+                file_id = file["id"]
+                # Grant public read access so the URL works without auth
+                service.permissions().create(
+                    fileId=file_id,
+                    body={"type": "anyone", "role": "reader"},
+                ).execute()
+
+                return f"https://drive.google.com/uc?export=view&id={file_id}"
+
+            return await asyncio.to_thread(_do_upload)
+        except Exception as exc:
+            logger.warning("Google Drive upload failed: %s", exc)
+        return None
+
     @staticmethod
     def _safe_symbol(symbol: str) -> str:
-        """Strip anything that's not alphanumeric to prevent path traversal in S3 keys."""
+        """Strip non-alphanumeric chars to prevent path traversal in storage keys."""
         return re.sub(r"[^a-zA-Z0-9]", "", symbol)[:10]
 
     async def generate_and_upload(self, symbol: str, summary: str, date_str: str) -> Optional[str]:

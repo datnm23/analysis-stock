@@ -74,11 +74,14 @@ class ScrapeScheduler:
                     gemini_text_model=s.gemini_text_model,
                     enable_image_generation=s.enable_image_generation,
                     gemini_image_model=s.gemini_image_model,
+                    image_storage_backend=s.image_storage_backend,
                     s3_endpoint=s.s3_endpoint,
                     s3_bucket=s.s3_bucket,
                     s3_access_key=s.s3_access_key,
                     s3_secret_key=s.s3_secret_key,
                     s3_public_url=s.s3_public_url,
+                    gdrive_credentials_json=s.gdrive_credentials_json,
+                    gdrive_folder_id=s.gdrive_folder_id,
                 )
 
     def _is_market_hours(self) -> bool:

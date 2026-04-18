@@ -60,11 +60,14 @@ class ArticleGenerator:
         # Image generation
         enable_image_generation: bool = False,
         gemini_image_model: str = "gemini-2.0-flash-preview-image-generation",
+        image_storage_backend: str = "s3",
         s3_endpoint: str = "",
         s3_bucket: str = "blog-images",
         s3_access_key: str = "",
         s3_secret_key: str = "",
         s3_public_url: str = "",
+        gdrive_credentials_json: str = "",
+        gdrive_folder_id: str = "",
     ):
         self._redis = redis_client
         self._go_url = go_services_url.rstrip("/")
@@ -88,11 +91,14 @@ class ArticleGenerator:
                 gemini_image_model=gemini_image_model,
                 anthropic_api_key=anthropic_api_key,
                 claude_model=claude_model,
+                storage_backend=image_storage_backend,
                 s3_endpoint=s3_endpoint,
                 s3_bucket=s3_bucket,
                 s3_access_key=s3_access_key,
                 s3_secret_key=s3_secret_key,
                 s3_public_url=s3_public_url,
+                gdrive_credentials_json=gdrive_credentials_json,
+                gdrive_folder_id=gdrive_folder_id,
             )
             if enable_image_generation
             else None
