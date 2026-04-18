@@ -108,6 +108,7 @@ Blog site (Next.js mới)
 | [04](./phase-04-admin-ui.md) | Admin UI (web-dashboard) | 2h | **completed** |
 | [05](./phase-05-blog-site.md) | Blog Site (Next.js) | 3h | **completed** |
 | [06](./phase-06-telegram-notify.md) | Telegram Notify Admin | 0.5h | **completed** |
+| [07](./phase-07-multi-model-enhancement.md) | **ENHANCEMENT:** Multi-Model Article Generation + Images | 1h | **completed** |
 
 ## Dependencies
 

@@ -27,6 +27,7 @@ type CreateArticleInput struct {
 	Summary      string   `json:"summary"`
 	SourceURLs   []string `json:"source_urls"`
 	ForecastData string   `json:"forecast_data"`
+	ImageURL     string   `json:"image_url"` // empty string = no image
 }
 
 type UpdateStatusInput struct {
@@ -94,6 +95,7 @@ func (s *ArticleService) Create(input CreateArticleInput) (*models.Article, erro
 		Summary:      input.Summary,
 		SourceURLs:   sourceURLsJSON,
 		ForecastData: input.ForecastData,
+		ImageURL:     nullableString(input.ImageURL),
 		Status:       models.ArticleStatusDraft,
 	}
 	if err := s.db.Create(article).Error; err != nil {
@@ -116,6 +118,13 @@ func (s *ArticleService) UpdateStatus(id uint, status models.ArticleStatus) (*mo
 		return nil, err
 	}
 	return &article, nil
+}
+
+func nullableString(s string) *string {
+	if s == "" {
+		return nil
+	}
+	return &s
 }
 
 func buildSlug(symbol, title string) string {

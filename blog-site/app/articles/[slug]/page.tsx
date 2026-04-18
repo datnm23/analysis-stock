@@ -1,3 +1,4 @@
+import Image from "next/image";
 import { notFound } from "next/navigation";
 import { getArticleBySlug, getArticles } from "@/lib/articles-api";
 
@@ -34,6 +35,18 @@ export default async function ArticleDetailPage({
 
   return (
     <article className="max-w-2xl">
+      {article.image_url && (
+        <div className="relative w-full h-56 rounded-lg overflow-hidden mb-6">
+          <Image
+            src={article.image_url}
+            alt={article.title}
+            fill
+            className="object-cover"
+            sizes="(max-width: 768px) 100vw, 672px"
+            priority
+          />
+        </div>
+      )}
       <div className="mb-6">
         <span className="text-sm font-bold text-blue-600 bg-blue-50 px-2 py-0.5 rounded">
           {article.symbol}

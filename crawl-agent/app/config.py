@@ -43,15 +43,27 @@ class Settings(BaseSettings):
     news_redis_max_items: int = 20
     news_redis_ttl_hours: int = 24
 
-    # Article generation (Claude API)
+    # Article generation — text models
     anthropic_api_key: str = ""
     article_max_daily: int = 10
     article_hot_symbols_count: int = 10
     article_claude_model: str = "claude-haiku-4-5-20251001"
+    article_model: str = "claude"  # claude | gemini | auto
+    gemini_api_key: str = ""
+    gemini_text_model: str = "gemini-2.0-flash"
     go_services_internal_url: str = "http://go-services:8080"
     go_services_internal_key: str = ""
     dashboard_url: str = "http://localhost:3000"
     telegram_admin_chat_id: str = ""
+
+    # Article generation — image pipeline (optional)
+    enable_image_generation: bool = False
+    gemini_image_model: str = "gemini-2.0-flash-preview-image-generation"
+    s3_endpoint: str = ""
+    s3_bucket: str = "blog-images"
+    s3_access_key: str = ""
+    s3_secret_key: str = ""
+    s3_public_url: str = ""
 
     # Feature flags
     enable_firecrawl: bool = True

@@ -8,6 +8,7 @@ export interface Article {
   summary: string;
   content: string;
   source_urls: string;
+  image_url?: string;
   published_at?: string;
   created_at: string;
 }

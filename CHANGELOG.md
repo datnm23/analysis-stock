@@ -8,6 +8,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Multi-model article generation: `ARTICLE_MODEL=claude|gemini|auto` (crawl-agent) for flexible LLM selection
+- Image generation pipeline: Claude prompt → Gemini Imagen → boto3 S3/MinIO upload → article URL storage
+- Article image_url field in Go services Article model
+- Blog article thumbnails on cards and hero images on detail pages
+- Image generation environment variables: `GEMINI_API_KEY`, `ENABLE_IMAGE_GENERATION`, `S3_ENDPOINT`, `S3_ACCESS_KEY`, `S3_SECRET_KEY`, `S3_PUBLIC_URL`, `S3_BUCKET`
 - Auto Blog pipeline: crawl-agent → Claude Haiku API → PostgreSQL → admin review → Next.js blog site (port 3001)
 - Go services articles API (4 endpoints: GET/POST/PUT/DELETE)
 - ArticleGenerator service in crawl-agent for AI-powered content synthesis

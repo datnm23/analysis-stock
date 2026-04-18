@@ -503,13 +503,16 @@ sequenceDiagram
 ```mermaid
 graph TB
     CRAWL["Crawl Agent<br/>Aggregated Stock News"]
-    AG["ArticleGenerator<br/>Claude Haiku API<br/>AI Content Synthesis"]
+    AG["ArticleGenerator<br/>Claude/Gemini API<br/>Multi-model Text Synthesis"]
+    IMG["Image Pipeline<br/>Claude Prompt → Gemini Imagen<br/>→ S3/MinIO Upload"]
     API["Articles API<br/>Go :8080<br/>4 Endpoints"]
     DB["PostgreSQL<br/>articles table"]
     DASH["Web Dashboard<br/>Admin Review UI"]
     BLOG["Blog Site<br/>Next.js :3001<br/>Public Articles"]
     
     CRAWL -->|crawled_content| AG
+    AG -->|image_prompt| IMG
+    IMG -->|image_url| AG
     AG -->|generated_article| API
     API -->|POST /articles| DB
     DASH -->|GET/PUT (review)| API
@@ -518,10 +521,11 @@ graph TB
 ```
 
 **Architecture:**
-- **ArticleGenerator** (crawl-agent): Receives aggregated stock news from crawlers, synthesizes with Claude Haiku API to generate complete blog articles with title, content, metadata
-- **Articles API** (go-services): 4 endpoints: `POST /articles` (create), `GET /articles` (list), `GET /articles/:id` (detail), `PUT /articles/:id` (update status)
-- **Web Dashboard Admin**: Review pending articles, approve/reject, mark for publication
-- **Blog Site** (blog-site/): Public-facing Next.js app displaying published articles (list view with pagination, detail view with stock symbols)
+- **ArticleGenerator** (crawl-agent): Multi-model support (`ARTICLE_MODEL=claude|gemini|auto`). Generates text + calls image pipeline for thumbnail generation. Returns article with image_url.
+- **Image Pipeline**: Claude generates image prompt → Gemini Imagen generates PNG → boto3 uploads to S3/MinIO → returns signed URL for storage in article.image_url
+- **Articles API** (go-services): 4 endpoints with image_url field: `POST /articles`, `GET /articles`, `GET /articles/:id`, `PUT /articles/:id`
+- **Blog Site** (blog-site/): Displays article thumbnails on list cards, hero image on detail pages
+- **Web Dashboard Admin**: Review articles with generated images before approval
 
 **Database Schema:**
 ```sql
@@ -531,8 +535,9 @@ CREATE TABLE articles (
     slug VARCHAR(255) UNIQUE NOT NULL,
     content TEXT NOT NULL,
     excerpt VARCHAR(500),
+    image_url VARCHAR(500),           -- Generated image thumbnail URL
     symbols TEXT[] NOT NULL,
-    status VARCHAR(20) DEFAULT 'pending', -- pending, approved, rejected, published
+    status VARCHAR(20) DEFAULT 'pending',
     generated_at TIMESTAMP,
     reviewed_at TIMESTAMP,
     published_at TIMESTAMP,
@@ -545,7 +550,15 @@ CREATE TABLE articles (
 
 **Environment Variables:**
 ```bash
-ANTHROPIC_API_KEY           # Claude Haiku API key for ArticleGenerator
+ANTHROPIC_API_KEY           # Claude API key for ArticleGenerator text
+ARTICLE_MODEL              # claude|gemini|auto (default: claude)
+GEMINI_API_KEY             # Gemini API key for Imagen image generation
+ENABLE_IMAGE_GENERATION    # true|false toggle for image pipeline
+S3_ENDPOINT                # MinIO/S3 endpoint (http://minio:9000 or AWS S3)
+S3_ACCESS_KEY              # S3/MinIO access key
+S3_SECRET_KEY              # S3/MinIO secret key
+S3_PUBLIC_URL              # Public URL for generated images (http://localhost:9000/...)
+S3_BUCKET                  # Bucket name for article images
 GO_SERVICES_INTERNAL_URL    # Internal go-services URL for articles API
 INTERNAL_API_KEY            # Service-to-service authentication
 ```

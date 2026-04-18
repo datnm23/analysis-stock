@@ -3,22 +3,21 @@ Generates stock analysis articles by combining scraped news with forecast data.
 
 Pipeline per symbol:
   hot symbols (Redis LLEN) → GET /forecast/{symbol} → news from Redis
-  → Claude Haiku rewrite → POST /api/v1/articles (draft)
-  → Telegram notify admin
+  → LLM rewrite (Claude/Gemini via config) → optional image generation
+  → POST /api/v1/articles (draft) → Telegram notify admin
 """
 
 import json
 import logging
-import os
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
 import httpx
 
-logger = logging.getLogger(__name__)
+from .image_pipeline import ImagePipeline
+from .llm_client import LLMClient
 
-_CLAUDE_API_URL = "https://api.anthropic.com/v1/messages"
-_ANTHROPIC_VERSION = "2023-06-01"
+logger = logging.getLogger(__name__)
 
 _PROMPT_TEMPLATE = """\
 Bạn là chuyên gia phân tích chứng khoán Việt Nam. Viết bài phân tích về cổ phiếu {symbol}.
@@ -54,17 +53,50 @@ class ArticleGenerator:
         claude_model: str = "claude-haiku-4-5-20251001",
         max_daily: int = 10,
         hot_symbols_count: int = 10,
+        # Multi-model text generation
+        article_model: str = "claude",
+        gemini_api_key: str = "",
+        gemini_text_model: str = "gemini-2.0-flash",
+        # Image generation
+        enable_image_generation: bool = False,
+        gemini_image_model: str = "gemini-2.0-flash-preview-image-generation",
+        s3_endpoint: str = "",
+        s3_bucket: str = "blog-images",
+        s3_access_key: str = "",
+        s3_secret_key: str = "",
+        s3_public_url: str = "",
     ):
         self._redis = redis_client
-        self._api_key = anthropic_api_key
         self._go_url = go_services_url.rstrip("/")
         self._go_key = go_services_key
         self._telegram_token = telegram_bot_token
         self._telegram_chat_id = telegram_chat_id
         self._dashboard_url = dashboard_url
-        self._model = claude_model
         self._max_daily = max_daily
         self._hot_symbols_count = hot_symbols_count
+
+        self._llm = LLMClient(
+            anthropic_api_key=anthropic_api_key,
+            gemini_api_key=gemini_api_key,
+            claude_model=claude_model,
+            gemini_text_model=gemini_text_model,
+            article_model=article_model,
+        )
+        self._images: Optional[ImagePipeline] = (
+            ImagePipeline(
+                gemini_api_key=gemini_api_key,
+                gemini_image_model=gemini_image_model,
+                anthropic_api_key=anthropic_api_key,
+                claude_model=claude_model,
+                s3_endpoint=s3_endpoint,
+                s3_bucket=s3_bucket,
+                s3_access_key=s3_access_key,
+                s3_secret_key=s3_secret_key,
+                s3_public_url=s3_public_url,
+            )
+            if enable_image_generation
+            else None
+        )
 
     async def get_hot_symbols(self) -> List[str]:
         """Return symbols sorted by Redis list length (most news = hottest)."""
@@ -124,40 +156,20 @@ class ArticleGenerator:
             news_list="\n".join(news_lines) if news_lines else "Không có tin tức.",
         )
 
-    async def _call_claude(self, prompt: str) -> Optional[str]:
-        if not self._api_key:
-            logger.warning("ANTHROPIC_API_KEY not set, skipping article generation")
-            return None
-        try:
-            async with httpx.AsyncClient(timeout=30) as client:
-                resp = await client.post(
-                    _CLAUDE_API_URL,
-                    headers={
-                        "x-api-key": self._api_key,
-                        "anthropic-version": _ANTHROPIC_VERSION,
-                        "content-type": "application/json",
-                    },
-                    json={
-                        "model": self._model,
-                        "max_tokens": 1024,
-                        "messages": [{"role": "user", "content": prompt}],
-                    },
-                )
-                if resp.status_code == 200:
-                    return resp.json()["content"][0]["text"]
-                logger.warning("Claude API %d: %s", resp.status_code, resp.text[:200])
-        except Exception as exc:
-            logger.warning("Claude API call failed: %s", exc)
-        return None
-
     async def _post_article(
-        self, symbol: str, title: str, content: str, forecast: Dict, source_urls: List[str]
+        self,
+        symbol: str,
+        title: str,
+        content: str,
+        forecast: Dict,
+        source_urls: List[str],
+        image_url: Optional[str] = None,
     ) -> bool:
         summary = next(
             (line.lstrip("#").strip() for line in content.splitlines() if line.strip()),
             content[:200],
         )
-        payload = {
+        payload: Dict[str, Any] = {
             "symbol": symbol,
             "title": title,
             "content": content,
@@ -165,6 +177,8 @@ class ArticleGenerator:
             "source_urls": source_urls,
             "forecast_data": json.dumps(forecast, ensure_ascii=False),
         }
+        if image_url:
+            payload["image_url"] = image_url
         try:
             async with httpx.AsyncClient(timeout=10) as client:
                 resp = await client.post(
@@ -185,15 +199,27 @@ class ArticleGenerator:
 
         news = await self._fetch_news(symbol)
         prompt = self._build_prompt(symbol, forecast, news)
-        content = await self._call_claude(prompt)
+        content = await self._llm.call_llm(prompt)
         if not content:
             return None
 
         title = f"Phân tích {symbol} ngày {datetime.now(timezone.utc).strftime('%d/%m/%Y')}"
         source_urls = [n.get("url", "") for n in news if n.get("url")]
 
-        if await self._post_article(symbol, title, content, forecast, source_urls):
-            logger.info("Article draft created: %s", symbol)
+        image_url: Optional[str] = None
+        if self._images:
+            summary = next(
+                (line.lstrip("#").strip() for line in content.splitlines() if line.strip()),
+                content[:200],
+            )
+            date_str = datetime.now(timezone.utc).strftime("%Y%m%d")
+            image_url = await self._images.generate_and_upload(symbol, summary, date_str)
+
+        success = await self._post_article(symbol, title, content, forecast, source_urls, image_url)
+        if success:
+            logger.info(
+                "Article draft created: %s%s", symbol, " (with image)" if image_url else ""
+            )
             return {"symbol": symbol, "title": title}
         return None
 
@@ -205,12 +231,11 @@ class ArticleGenerator:
             lines.append(f"\u2022 {a['symbol']} \u2014 {a['title']}")
         if self._dashboard_url:
             lines.append(f"\nDuyệt tại: {self._dashboard_url}/admin/articles")
-        text = "\n".join(lines)
         try:
             async with httpx.AsyncClient(timeout=10) as client:
                 await client.post(
                     f"https://api.telegram.org/bot{self._telegram_token}/sendMessage",
-                    json={"chat_id": self._telegram_chat_id, "text": text},
+                    json={"chat_id": self._telegram_chat_id, "text": "\n".join(lines)},
                 )
         except Exception as exc:
             logger.warning("Telegram notify failed: %s", exc)
