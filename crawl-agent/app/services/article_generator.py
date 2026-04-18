@@ -54,12 +54,17 @@ class ArticleGenerator:
         max_daily: int = 10,
         hot_symbols_count: int = 10,
         # Multi-model text generation
-        article_model: str = "claude",
+        article_model: str = "auto",
         gemini_api_key: str = "",
         gemini_text_model: str = "gemini-2.0-flash",
-        # Image generation
+        xai_api_key: str = "",
+        grok_model: str = "grok-3",
+        # Image generation via Vertex AI
         enable_image_generation: bool = False,
-        gemini_image_model: str = "gemini-2.0-flash-preview-image-generation",
+        vertex_credentials_json: str = "",
+        vertex_project_id: str = "",
+        vertex_location: str = "us-central1",
+        vertex_image_model: str = "imagen-3.0-generate-001",
         image_storage_backend: str = "s3",
         s3_endpoint: str = "",
         s3_bucket: str = "blog-images",
@@ -81,16 +86,20 @@ class ArticleGenerator:
         self._llm = LLMClient(
             anthropic_api_key=anthropic_api_key,
             gemini_api_key=gemini_api_key,
+            xai_api_key=xai_api_key,
             claude_model=claude_model,
             gemini_text_model=gemini_text_model,
+            grok_model=grok_model,
             article_model=article_model,
         )
         self._images: Optional[ImagePipeline] = (
             ImagePipeline(
-                gemini_api_key=gemini_api_key,
-                gemini_image_model=gemini_image_model,
                 anthropic_api_key=anthropic_api_key,
                 claude_model=claude_model,
+                vertex_credentials_json=vertex_credentials_json,
+                vertex_project_id=vertex_project_id,
+                vertex_location=vertex_location,
+                vertex_image_model=vertex_image_model,
                 storage_backend=image_storage_backend,
                 s3_endpoint=s3_endpoint,
                 s3_bucket=s3_bucket,

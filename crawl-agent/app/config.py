@@ -43,22 +43,27 @@ class Settings(BaseSettings):
     news_redis_max_items: int = 20
     news_redis_ttl_hours: int = 24
 
-    # Article generation — text models
+    # Article generation — text models (priority: grok → gemini → claude when auto)
     anthropic_api_key: str = ""
     article_max_daily: int = 10
     article_hot_symbols_count: int = 10
     article_claude_model: str = "claude-haiku-4-5-20251001"
-    article_model: str = "claude"  # claude | gemini | auto
+    article_model: str = "auto"  # grok | gemini | claude | auto
     gemini_api_key: str = ""
     gemini_text_model: str = "gemini-2.0-flash"
+    xai_api_key: str = ""       # Grok (xAI)
+    grok_model: str = "grok-3"
     go_services_internal_url: str = "http://go-services:8080"
     go_services_internal_key: str = ""
     dashboard_url: str = "http://localhost:3000"
     telegram_admin_chat_id: str = ""
 
-    # Article generation — image pipeline (optional)
+    # Article generation — image pipeline via Vertex AI (optional)
     enable_image_generation: bool = False
-    gemini_image_model: str = "gemini-2.0-flash-preview-image-generation"
+    vertex_credentials_json: str = ""           # service account JSON string
+    vertex_project_id: str = ""
+    vertex_location: str = "us-central1"
+    vertex_image_model: str = "imagen-3.0-generate-001"
     image_storage_backend: str = "s3"  # s3 | gdrive
     # S3/MinIO backend
     s3_endpoint: str = ""
@@ -67,8 +72,8 @@ class Settings(BaseSettings):
     s3_secret_key: str = ""
     s3_public_url: str = ""
     # Google Drive backend
-    gdrive_credentials_json: str = ""  # service account JSON as string
-    gdrive_folder_id: str = ""         # folder ID to upload images into
+    gdrive_credentials_json: str = ""  # service account JSON string
+    gdrive_folder_id: str = ""
 
     # Feature flags
     enable_firecrawl: bool = True

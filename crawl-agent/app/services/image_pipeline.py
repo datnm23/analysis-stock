@@ -1,4 +1,4 @@
-"""Image generation via Gemini + upload to S3/MinIO or Google Drive."""
+"""Image generation via Vertex AI Imagen + upload to S3/MinIO or Google Drive."""
 import asyncio
 import base64
 import json
@@ -12,7 +12,10 @@ logger = logging.getLogger(__name__)
 
 _CLAUDE_URL = "https://api.anthropic.com/v1/messages"
 _ANTHROPIC_VERSION = "2023-06-01"
-_GEMINI_BASE = "https://generativelanguage.googleapis.com/v1beta/models"
+_VERTEX_TEMPLATE = (
+    "https://{location}-aiplatform.googleapis.com/v1/projects/{project}"
+    "/locations/{location}/publishers/google/models/{model}:predict"
+)
 
 _IMAGE_PROMPT_INSTRUCTIONS = """\
 Tạo một câu mô tả ảnh minh họa ngắn gọn cho bài phân tích cổ phiếu {symbol}.
@@ -26,10 +29,14 @@ Tóm tắt bài: {summary}
 class ImagePipeline:
     def __init__(
         self,
-        gemini_api_key: str = "",
-        gemini_image_model: str = "gemini-2.0-flash-preview-image-generation",
         anthropic_api_key: str = "",
         claude_model: str = "claude-haiku-4-5-20251001",
+        # Vertex AI Imagen
+        vertex_credentials_json: str = "",
+        vertex_project_id: str = "",
+        vertex_location: str = "us-central1",
+        vertex_image_model: str = "imagen-3.0-generate-001",
+        # Storage
         storage_backend: str = "s3",
         # S3/MinIO
         s3_endpoint: str = "",
@@ -41,10 +48,12 @@ class ImagePipeline:
         gdrive_credentials_json: str = "",
         gdrive_folder_id: str = "",
     ):
-        self._gemini_key = gemini_api_key
-        self._gemini_image_model = gemini_image_model
         self._anthropic_key = anthropic_api_key
         self._claude_model = claude_model
+        self._vertex_credentials_json = vertex_credentials_json
+        self._vertex_project_id = vertex_project_id
+        self._vertex_location = vertex_location
+        self._vertex_image_model = vertex_image_model
         self._storage_backend = storage_backend
         self._s3_endpoint = s3_endpoint
         self._s3_bucket = s3_bucket
@@ -81,32 +90,53 @@ class ImagePipeline:
         return f"Abstract financial chart for {symbol} stock analysis, blue gradient, minimalist"
 
     async def generate_image(self, image_prompt: str) -> Optional[bytes]:
-        """Generate PNG bytes via Gemini image generation model."""
-        if not self._gemini_key:
-            logger.warning("GEMINI_API_KEY not set, skipping image generation")
+        """Generate PNG bytes via Vertex AI Imagen."""
+        if not self._vertex_project_id or not self._vertex_credentials_json:
+            logger.warning("Vertex AI not configured (need VERTEX_PROJECT_ID + VERTEX_CREDENTIALS_JSON)")
             return None
-        url = f"{_GEMINI_BASE}/{self._gemini_image_model}:generateContent"
         try:
+            creds_dict = json.loads(self._vertex_credentials_json)
+        except json.JSONDecodeError as exc:
+            logger.warning("VERTEX_CREDENTIALS_JSON invalid: %s", exc)
+            return None
+
+        url = _VERTEX_TEMPLATE.format(
+            location=self._vertex_location,
+            project=self._vertex_project_id,
+            model=self._vertex_image_model,
+        )
+        try:
+            from google.auth.transport.requests import Request
+            from google.oauth2 import service_account
+
+            def _get_token() -> str:
+                creds = service_account.Credentials.from_service_account_info(
+                    creds_dict,
+                    scopes=["https://www.googleapis.com/auth/cloud-platform"],
+                )
+                creds.refresh(Request())
+                return creds.token
+
+            token = await asyncio.to_thread(_get_token)
+
             async with httpx.AsyncClient(timeout=60) as client:
                 resp = await client.post(
                     url,
-                    headers={"x-goog-api-key": self._gemini_key},
+                    headers={"Authorization": f"Bearer {token}"},
                     json={
-                        "contents": [{"parts": [{"text": image_prompt}]}],
-                        "generationConfig": {"responseModalities": ["IMAGE", "TEXT"]},
+                        "instances": [{"prompt": image_prompt}],
+                        "parameters": {"sampleCount": 1},
                     },
                 )
                 if resp.status_code == 200:
-                    candidates = resp.json().get("candidates", [])
-                    if not candidates:
-                        logger.warning("Gemini image: no candidates returned")
-                        return None
-                    for part in candidates[0].get("content", {}).get("parts", []):
-                        if "inlineData" in part:
-                            return base64.b64decode(part["inlineData"]["data"])
-                logger.warning("Gemini image API %d", resp.status_code)
+                    predictions = resp.json().get("predictions", [])
+                    if predictions:
+                        return base64.b64decode(predictions[0]["bytesBase64Encoded"])
+                    logger.warning("Vertex AI: no predictions returned")
+                else:
+                    logger.warning("Vertex AI image API %d", resp.status_code)
         except Exception as exc:
-            logger.warning("Gemini image generation failed: %s", exc)
+            logger.warning("Vertex AI image generation failed: %s", exc)
         return None
 
     async def upload_image(self, key: str, image_bytes: bytes) -> Optional[str]:

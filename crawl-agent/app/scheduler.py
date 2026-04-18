@@ -57,7 +57,7 @@ class ScrapeScheduler:
                 max_items=s.news_redis_max_items,
                 ttl_hours=s.news_redis_ttl_hours,
             )
-            if s.anthropic_api_key or s.gemini_api_key:
+            if s.anthropic_api_key or s.gemini_api_key or s.xai_api_key:
                 self._article_generator = ArticleGenerator(
                     redis_client=redis_client,
                     anthropic_api_key=s.anthropic_api_key,
@@ -72,8 +72,13 @@ class ScrapeScheduler:
                     article_model=s.article_model,
                     gemini_api_key=s.gemini_api_key,
                     gemini_text_model=s.gemini_text_model,
+                    xai_api_key=s.xai_api_key,
+                    grok_model=s.grok_model,
                     enable_image_generation=s.enable_image_generation,
-                    gemini_image_model=s.gemini_image_model,
+                    vertex_credentials_json=s.vertex_credentials_json,
+                    vertex_project_id=s.vertex_project_id,
+                    vertex_location=s.vertex_location,
+                    vertex_image_model=s.vertex_image_model,
                     image_storage_backend=s.image_storage_backend,
                     s3_endpoint=s.s3_endpoint,
                     s3_bucket=s.s3_bucket,
