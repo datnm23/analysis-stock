@@ -110,7 +110,7 @@ func Load() *Config {
 			TechnicalURL:   getEnv("TECHNICAL_SERVICE_URL", "http://localhost:8081"),
 			SentimentURL:   getEnv("SENTIMENT_SERVICE_URL", "http://localhost:8000"),
 			ForecastURL:    getEnv("FORECAST_SERVICE_URL", "http://localhost:8082"),
-			VnStockBaseURL: getEnv("VNSTOCK_BASE_URL", "https://apipubaws.tcbs.com.vn/stock-insight/v1"),
+			VnStockBaseURL: getEnv("VNSTOCK_BASE_URL", "https://kbbuddywts.kbsec.com.vn/iis-server/investment/stocks"),
 		},
 		Auth: AuthConfig{
 			JWTSecretKey:       getEnv("JWT_SECRET_KEY", ""),

@@ -11,6 +11,7 @@ export interface Article {
   image_url?: string;
   published_at?: string;
   created_at: string;
+  forecast_data?: string;
 }
 
 export interface ArticleListResult {
@@ -27,7 +28,7 @@ export async function getArticles(
   try {
     const res = await fetch(
       `${API_URL}/api/v1/articles?status=published&limit=${limit}&offset=${offset}`,
-      { next: { revalidate: 3600 } }
+      { next: { revalidate: 60 } }
     );
     if (!res.ok) return { articles: [], total: 0, limit, offset };
     return res.json();
@@ -39,7 +40,7 @@ export async function getArticles(
 export async function getArticleBySlug(slug: string): Promise<Article | null> {
   try {
     const res = await fetch(`${API_URL}/api/v1/articles/${slug}`, {
-      next: { revalidate: 3600 },
+      next: { revalidate: 60 },
     });
     if (!res.ok) return null;
     return res.json();

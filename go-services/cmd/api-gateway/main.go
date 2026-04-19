@@ -112,6 +112,9 @@ func main() {
 			v1.GET("/analysis/status/:id", handlers.AnalysisStatus(jobQueue))
 		}
 
+		// Chart OHLCV data
+		v1.GET("/chart/:symbol", handlers.ChartData())
+
 		// Articles (blog)
 		v1.GET("/articles", handlers.ListArticles(articleSvc))
 		v1.GET("/articles/:slug", handlers.GetArticleBySlug(articleSvc))

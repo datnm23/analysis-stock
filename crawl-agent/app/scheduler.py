@@ -85,7 +85,7 @@ class ScrapeScheduler:
                     s3_access_key=s.s3_access_key,
                     s3_secret_key=s.s3_secret_key,
                     s3_public_url=s.s3_public_url,
-                    gdrive_credentials_json=s.gdrive_credentials_json,
+                    gdrive_credentials_json=s.gdrive_credentials_json or s.vertex_credentials_json,
                     gdrive_folder_id=s.gdrive_folder_id,
                 )
 

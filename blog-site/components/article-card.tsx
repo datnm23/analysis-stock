@@ -2,34 +2,86 @@ import Image from "next/image";
 import Link from "next/link";
 import { Article } from "@/lib/articles-api";
 
+const REC_BADGE: Record<string, string> = {
+  BUY: "badge-buy",
+  SELL: "badge-sell",
+  HOLD: "badge-hold",
+};
+
+const REC_LABEL: Record<string, string> = {
+  BUY: "MUA",
+  SELL: "BÁN",
+  HOLD: "GIỮ",
+};
+
+function getRecommendation(forecastData?: string): string | null {
+  if (!forecastData) return null;
+  try {
+    return JSON.parse(forecastData).recommendation ?? null;
+  } catch {
+    return null;
+  }
+}
+
 export function ArticleCard({ article }: { article: Article }) {
-  const date = article.published_at
-    ? new Date(article.published_at).toLocaleDateString("vi-VN")
-    : "";
+  const date = new Date(article.published_at ?? article.created_at).toLocaleDateString("vi-VN", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+  });
+
+  const rec = getRecommendation(article.forecast_data);
 
   return (
     <Link href={`/articles/${article.slug}`} className="block group">
-      <div className="bg-white rounded-lg border hover:shadow-md transition-shadow h-full overflow-hidden">
-        {article.image_url && (
-          <div className="relative w-full h-36">
+      <div className="card-brutal flex flex-col h-full">
+        {/* ── Thumbnail ── */}
+        {article.image_url ? (
+          <div className="relative w-full h-44 flex-shrink-0 border-b-3 border-ink overflow-hidden">
             <Image
               src={article.image_url}
               alt={article.title}
               fill
-              className="object-cover"
+              className="object-cover group-hover:scale-105 transition-transform duration-300"
               sizes="(max-width: 768px) 100vw, 50vw"
             />
           </div>
+        ) : (
+          <div className="w-full h-44 flex-shrink-0 border-b-3 border-ink bg-ink flex items-center justify-center">
+            <span className="text-4xl font-black text-yellow/30 tracking-widest uppercase">
+              {article.symbol}
+            </span>
+          </div>
         )}
-        <div className="p-5">
-          <span className="text-xs font-bold text-blue-600 bg-blue-50 px-2 py-0.5 rounded">
-            {article.symbol}
-          </span>
-          <h2 className="text-base font-semibold mt-2 group-hover:text-blue-700 line-clamp-2">
+
+        {/* ── Body ── */}
+        <div className="p-5 flex flex-col flex-1 gap-3">
+          {/* Badges row */}
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="badge-symbol">{article.symbol}</span>
+            {rec && (
+              <span className={REC_BADGE[rec] ?? "badge-hold"}>
+                {REC_LABEL[rec] ?? rec}
+              </span>
+            )}
+          </div>
+
+          {/* Title */}
+          <h2 className="text-sm font-bold text-ink leading-snug line-clamp-3 flex-1 group-hover:underline underline-offset-2 decoration-2 decoration-yellow">
             {article.title}
           </h2>
-          <p className="text-sm text-gray-500 mt-1 line-clamp-2">{article.summary}</p>
-          <p className="text-xs text-gray-400 mt-3">{date}</p>
+
+          {/* Summary */}
+          {article.summary && article.summary !== "Tóm tắt" && (
+            <p className="text-xs text-ink/60 line-clamp-2 leading-relaxed">
+              {article.summary}
+            </p>
+          )}
+
+          {/* Date */}
+          <p className="text-xs font-semibold text-ink/40 uppercase tracking-wide mt-auto pt-2 border-t-2 border-ink/10">
+            {date}
+          </p>
         </div>
       </div>
     </Link>

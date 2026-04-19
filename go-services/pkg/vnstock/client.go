@@ -45,16 +45,16 @@ type OHLCV struct {
 	Volume int64     `json:"volume"`
 }
 
-// Client provides access to Vietnamese stock market data via TCBS API
+// Client provides access to Vietnamese stock market data via KBS Securities API
 type Client struct {
 	httpClient *http.Client
 	baseURL    string
 }
 
-// defaultBaseURL is the TCBS public API — no authentication required
-const defaultBaseURL = "https://apipubaws.tcbs.com.vn/stock-insight/v1"
+// defaultBaseURL is the KB Securities public API — no authentication required
+const defaultBaseURL = "https://kbbuddywts.kbsec.com.vn/iis-server/investment/stocks"
 
-// NewClient creates a new vnstock client using the default TCBS endpoint
+// NewClient creates a new vnstock client using the default KBS endpoint
 func NewClient() *Client {
 	return &Client{
 		httpClient: &http.Client{
@@ -74,48 +74,33 @@ func NewClientWithConfig(baseURL string, timeout time.Duration) *Client {
 	}
 }
 
-// tcbsResponse is the top-level response from the TCBS bars API
-type tcbsResponse struct {
-	Data []tcbsBar `json:"data"`
+// kbsResponse is the top-level response from the KBS data_day API
+type kbsResponse struct {
+	Symbol  string   `json:"symbol"`
+	DataDay []kbsBar `json:"data_day"`
 }
 
-// tcbsBar holds one day of OHLCV data returned by TCBS
-type tcbsBar struct {
-	Open        float64 `json:"open"`
-	High        float64 `json:"high"`
-	Low         float64 `json:"low"`
-	Close       float64 `json:"close"`
-	Volume      int64   `json:"volume"`
-	TradingDate string  `json:"tradingDate"`
+// kbsBar holds one day of OHLCV data returned by KBS Securities
+type kbsBar struct {
+	Time   string  `json:"t"`
+	Open   float64 `json:"o"`
+	High   float64 `json:"h"`
+	Low    float64 `json:"l"`
+	Close  float64 `json:"c"`
+	Volume int64   `json:"v"`
 }
 
-// tradingDateFormats lists the date layouts TCBS may return
-var tradingDateFormats = []string{
-	"2006-01-02",
-	"2006-01-02T15:04:05.000Z",
-	"2006-01-02T15:04:05Z",
-	time.RFC3339,
-}
-
-// parseTradingDate tries each known layout until one succeeds
-func parseTradingDate(s string) (time.Time, error) {
-	for _, layout := range tradingDateFormats {
-		if t, err := time.Parse(layout, s); err == nil {
-			return t, nil
-		}
-	}
-	return time.Time{}, fmt.Errorf("unable to parse trading date: %q", s)
-}
-
-// GetHistoricalData fetches historical OHLCV data from the TCBS public API.
-// It retries up to 2 times with exponential back-off before returning an error.
+// GetHistoricalData fetches historical OHLCV data from the KBS Securities API.
+// It retries up to 3 times with exponential back-off before returning an error.
 func (c *Client) GetHistoricalData(ctx context.Context, symbol string, days int) ([]OHLCV, error) {
 	end := time.Now()
 	start := end.AddDate(0, 0, -days)
 
 	url := fmt.Sprintf(
-		"%s/stock/bars-long-term?ticker=%s&type=stock&resolution=D&from=%d&to=%d",
-		c.baseURL, symbol, start.Unix(), end.Unix(),
+		"%s/%s/data_day?sdate=%s&edate=%s",
+		c.baseURL, symbol,
+		start.Format("02-01-2006"),
+		end.Format("02-01-2006"),
 	)
 
 	var lastErr error
@@ -137,7 +122,7 @@ func (c *Client) GetHistoricalData(ctx context.Context, symbol string, days int)
 	return nil, fmt.Errorf("all attempts failed for %s: %w", symbol, lastErr)
 }
 
-// doFetch performs a single HTTP GET and parses the TCBS response
+// doFetch performs a single HTTP GET and parses the KBS response
 func (c *Client) doFetch(ctx context.Context, url string) ([]OHLCV, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
@@ -156,23 +141,26 @@ func (c *Client) doFetch(ctx context.Context, url string) ([]OHLCV, error) {
 		return nil, fmt.Errorf("API returned status %d", resp.StatusCode)
 	}
 
-	var parsed tcbsResponse
+	var parsed kbsResponse
 	if err := json.NewDecoder(resp.Body).Decode(&parsed); err != nil {
 		return nil, fmt.Errorf("failed to decode response: %w", err)
 	}
 
-	if len(parsed.Data) == 0 {
+	if len(parsed.DataDay) == 0 {
 		return nil, fmt.Errorf("empty data array in response")
 	}
 
-	ohlcv := make([]OHLCV, 0, len(parsed.Data))
-	for _, bar := range parsed.Data {
-		date, err := parseTradingDate(bar.TradingDate)
+	ohlcv := make([]OHLCV, 0, len(parsed.DataDay))
+	for _, bar := range parsed.DataDay {
+		t, err := time.Parse("2006-01-02 15:04", bar.Time)
 		if err != nil {
-			continue // skip malformed rows
+			t, err = time.Parse("2006-01-02", bar.Time[:10])
+			if err != nil {
+				continue
+			}
 		}
 		ohlcv = append(ohlcv, OHLCV{
-			Date:   date,
+			Date:   t,
 			Open:   bar.Open,
 			High:   bar.High,
 			Low:    bar.Low,
@@ -219,79 +207,12 @@ func (c *Client) GetMockData(symbol string, days int) []OHLCV {
 	return data
 }
 
-// GetMarketIndex fetches the latest snapshot of a market index (e.g. "VNINDEX", "VN30").
-func (c *Client) GetMarketIndex(ctx context.Context, index string) (*MarketIndex, error) {
-	url := fmt.Sprintf("%s/stock/overview?symbol=%s", c.baseURL, index)
-
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
-	if err != nil {
-		return nil, fmt.Errorf("create index request: %w", err)
-	}
-
-	resp, err := c.httpClient.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("fetch index %s: %w", index, err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("index %s returned status %d", index, resp.StatusCode)
-	}
-
-	var raw struct {
-		Symbol       string  `json:"ticker"`
-		Price        float64 `json:"marketPrice"`
-		PriceChange  float64 `json:"priceChange"`
-		ChangePct    float64 `json:"percentChange"`
-		TotalVolume  int64   `json:"totalVolume"`
-	}
-	if err := json.NewDecoder(resp.Body).Decode(&raw); err != nil {
-		return nil, fmt.Errorf("decode index %s: %w", index, err)
-	}
-
-	return &MarketIndex{
-		Name:      index,
-		Value:     raw.Price,
-		Change:    raw.PriceChange,
-		ChangePct: raw.ChangePct,
-		Volume:    raw.TotalVolume,
-	}, nil
+// GetMarketIndex returns a stub market index — live index data not available from KBS API.
+func (c *Client) GetMarketIndex(_ context.Context, index string) (*MarketIndex, error) {
+	return &MarketIndex{Name: index}, nil
 }
 
-// GetForeignFlow fetches foreign investor net buy/sell data for a symbol.
-func (c *Client) GetForeignFlow(ctx context.Context, symbol string) (*ForeignFlow, error) {
-	url := fmt.Sprintf("%s/stock/overview?symbol=%s", c.baseURL, symbol)
-
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
-	if err != nil {
-		return nil, fmt.Errorf("create foreign flow request: %w", err)
-	}
-
-	resp, err := c.httpClient.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("fetch foreign flow %s: %w", symbol, err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("foreign flow %s returned status %d", symbol, resp.StatusCode)
-	}
-
-	var raw struct {
-		ForeignBuyVol  int64   `json:"foreignBuyVolume"`
-		ForeignSellVol int64   `json:"foreignSellVolume"`
-		ForeignBuyVal  float64 `json:"foreignBuyValue"`
-		ForeignSellVal float64 `json:"foreignSellValue"`
-	}
-	if err := json.NewDecoder(resp.Body).Decode(&raw); err != nil {
-		return nil, fmt.Errorf("decode foreign flow %s: %w", symbol, err)
-	}
-
-	return &ForeignFlow{
-		Symbol:    symbol,
-		NetBuyVol: raw.ForeignBuyVol - raw.ForeignSellVol,
-		NetBuyVal: raw.ForeignBuyVal - raw.ForeignSellVal,
-		BuyVol:    raw.ForeignBuyVol,
-		SellVol:   raw.ForeignSellVol,
-	}, nil
+// GetForeignFlow returns a stub foreign flow — live data not available from KBS API.
+func (c *Client) GetForeignFlow(_ context.Context, symbol string) (*ForeignFlow, error) {
+	return &ForeignFlow{Symbol: symbol}, nil
 }

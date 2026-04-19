@@ -3,7 +3,9 @@ import asyncio
 import base64
 import json
 import logging
+import os
 import re
+from pathlib import Path
 from typing import Optional
 
 import httpx
@@ -142,8 +144,36 @@ class ImagePipeline:
     async def upload_image(self, key: str, image_bytes: bytes) -> Optional[str]:
         """Upload image bytes using the configured storage backend."""
         if self._storage_backend == "gdrive":
-            return await self._upload_gdrive(key, image_bytes)
+            url = await self._upload_gdrive(key, image_bytes)
+            if url:
+                return url
+            # Fallback to local if GDrive fails
+            logger.warning("GDrive upload failed, falling back to local storage")
+            return await self._upload_local(key, image_bytes)
+        if self._storage_backend == "local":
+            return await self._upload_local(key, image_bytes)
         return await self._upload_s3(key, image_bytes)
+
+    async def _upload_local(self, key: str, image_bytes: bytes) -> Optional[str]:
+        """Save image to blog-site/public/images/ and return relative URL."""
+        # Resolve blog-site public path: env var → sibling dir → CWD fallback
+        env_path = os.environ.get("BLOG_STATIC_PATH", "")
+        blog_public = Path(env_path) if env_path else None
+
+        if not blog_public or not blog_public.exists():
+            # crawl-agent is sibling of blog-site under the monorepo root
+            candidates = [
+                Path(__file__).parents[3] / "blog-site" / "public",  # <root>/blog-site/public
+                Path(__file__).parents[2] / ".." / "blog-site" / "public",
+            ]
+            blog_public = next((p.resolve() for p in candidates if p.resolve().exists()), Path("public"))
+
+        dest = blog_public / "images" / key
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        dest.write_bytes(image_bytes)
+        relative_url = f"/images/{key}"
+        logger.info("Image saved locally: %s → %s", dest, relative_url)
+        return relative_url
 
     async def _upload_s3(self, key: str, image_bytes: bytes) -> Optional[str]:
         """Upload PNG bytes to S3/MinIO, return public URL."""
@@ -198,28 +228,31 @@ class ImagePipeline:
             def _do_upload() -> str:
                 creds = service_account.Credentials.from_service_account_info(
                     creds_dict,
-                    scopes=["https://www.googleapis.com/auth/drive.file"],
+                    scopes=["https://www.googleapis.com/auth/drive"],
                 )
                 service = build("drive", "v3", credentials=creds, cache_discovery=False)
 
-                metadata: dict = {"name": filename}
-                if self._gdrive_folder_id:
-                    metadata["parents"] = [self._gdrive_folder_id]
-
                 media = MediaInMemoryUpload(image_bytes, mimetype="image/png", resumable=False)
-                file = service.files().create(
-                    body=metadata,
-                    media_body=media,
-                    fields="id",
-                ).execute()
+
+                def _create(with_parent: bool) -> dict:
+                    metadata: dict = {"name": filename}
+                    if with_parent and self._gdrive_folder_id:
+                        metadata["parents"] = [self._gdrive_folder_id]
+                    return service.files().create(
+                        body=metadata, media_body=media, fields="id",
+                    ).execute()
+
+                try:
+                    file = _create(with_parent=True)
+                except Exception as folder_err:
+                    logger.warning("GDrive parent folder not accessible (%s), uploading to root", folder_err)
+                    file = _create(with_parent=False)
 
                 file_id = file["id"]
-                # Grant public read access so the URL works without auth
                 service.permissions().create(
                     fileId=file_id,
                     body={"type": "anyone", "role": "reader"},
                 ).execute()
-
                 return f"https://drive.google.com/uc?export=view&id={file_id}"
 
             return await asyncio.to_thread(_do_upload)

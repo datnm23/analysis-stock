@@ -1,27 +1,172 @@
+@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&display=swap');
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --background: #FFFDF5;
+  --foreground: #0A0A0A;
+  --border: #0A0A0A;
+  --shadow: 4px 4px 0px #0A0A0A;
+  --shadow-sm: 2px 2px 0px #0A0A0A;
+  --shadow-lg: 6px 6px 0px #0A0A0A;
+  --yellow: #FFD93D;
+  --red: #FF4A4A;
+  --green: #05D98F;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+* {
+  box-sizing: border-box;
 }
 
 body {
   color: var(--foreground);
   background: var(--background);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: "Space Grotesk", system-ui, -apple-system, sans-serif;
+  font-size: 16px;
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ─── Brutalist interactive base ─── */
+.btn-brutal {
+  display: inline-block;
+  border: 3px solid #0A0A0A;
+  box-shadow: 4px 4px 0px #0A0A0A;
+  font-weight: 700;
+  cursor: pointer;
+  transition: transform 80ms, box-shadow 80ms;
+}
+.btn-brutal:hover {
+  transform: translate(4px, 4px);
+  box-shadow: none;
+}
+
+.card-brutal {
+  border: 3px solid #0A0A0A;
+  box-shadow: 4px 4px 0px #0A0A0A;
+  background: #fff;
+  transition: transform 100ms, box-shadow 100ms;
+}
+.card-brutal:hover {
+  transform: translate(4px, 4px);
+  box-shadow: none;
+}
+
+/* ─── Prose (article content) ─── */
+.prose h2 {
+  font-size: 1.25rem;
+  font-weight: 700;
+  color: #0A0A0A;
+  margin-top: 2rem;
+  margin-bottom: 0.75rem;
+  padding-bottom: 0.5rem;
+  border-bottom: 3px solid #0A0A0A;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+}
+.prose h3 {
+  font-size: 1.05rem;
+  font-weight: 700;
+  color: #0A0A0A;
+  margin-top: 1.5rem;
+  margin-bottom: 0.5rem;
+}
+.prose p {
+  color: #1a1a1a;
+  line-height: 1.75;
+  margin-bottom: 1rem;
+}
+.prose strong {
+  color: #0A0A0A;
+  font-weight: 700;
+  background: #FFD93D;
+  padding: 0 3px;
+}
+.prose ul {
+  list-style: none;
+  padding-left: 0;
+  margin-bottom: 1rem;
+}
+.prose ul li {
+  color: #1a1a1a;
+  padding: 4px 0 4px 1.5rem;
+  position: relative;
+}
+.prose ul li::before {
+  content: "▸";
+  position: absolute;
+  left: 0;
+  color: #0A0A0A;
+  font-weight: 700;
+}
+.prose li {
+  color: #1a1a1a;
+}
+.prose em {
+  font-style: normal;
+  font-size: 0.85rem;
+  color: #555;
+  border-left: 3px solid #FFD93D;
+  padding-left: 8px;
+  display: block;
+  margin: 0.5rem 0;
+}
+.prose blockquote {
+  border-left: 4px solid #0A0A0A;
+  background: #FFD93D;
+  padding: 0.75rem 1rem;
+  font-weight: 600;
+  color: #0A0A0A;
+  margin: 1.5rem 0;
+}
+.prose img {
+  border: 3px solid #0A0A0A;
+  box-shadow: 4px 4px 0px #0A0A0A;
+  max-width: 100%;
+}
+
+/* ─── Ticker badge ─── */
+.badge-symbol {
+  display: inline-block;
+  font-weight: 700;
+  font-size: 0.7rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  border: 2px solid #0A0A0A;
+  padding: 1px 8px;
+  background: #FFD93D;
+  color: #0A0A0A;
+}
+.badge-buy {
+  background: #05D98F;
+  border: 2px solid #0A0A0A;
+  color: #0A0A0A;
+  font-weight: 700;
+  font-size: 0.7rem;
+  padding: 1px 8px;
+  letter-spacing: 0.06em;
+}
+.badge-sell {
+  background: #FF4A4A;
+  border: 2px solid #0A0A0A;
+  color: #0A0A0A;
+  font-weight: 700;
+  font-size: 0.7rem;
+  padding: 1px 8px;
+  letter-spacing: 0.06em;
+}
+.badge-hold {
+  background: #FFD93D;
+  border: 2px solid #0A0A0A;
+  color: #0A0A0A;
+  font-weight: 700;
+  font-size: 0.7rem;
+  padding: 1px 8px;
+  letter-spacing: 0.06em;
 }
 
 @layer utilities {
-  .text-balance {
-    text-wrap: balance;
-  }
+  .text-balance { text-wrap: balance; }
 }
