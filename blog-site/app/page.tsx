@@ -1,6 +1,8 @@
 import Link from "next/link";
+import { Suspense } from "react";
 import { getLatestArticles } from "@/lib/articles-api";
 import { ArticleCard } from "@/components/article-card";
+import { TrendingStocks } from "@/components/trending-stocks";
 
 export const revalidate = 60;
 
@@ -68,7 +70,7 @@ export default async function HomePage() {
             {["VNM", "HPG", "VCB", "BID", "SSI", "MSN", "FPT", "VIC", "TCB"].map((s) => (
               <Link
                 key={s}
-                href={`/articles`}
+                href={`/symbols/${s}`}
                 className="text-ink font-black text-xs shrink-0 hover:underline underline-offset-2"
               >
                 {s}
@@ -77,6 +79,10 @@ export default async function HomePage() {
           </div>
         </div>
       </div>
+
+      {/* ─── Trending + Latest grid ─── */}
+      <div className="grid grid-cols-1 lg:grid-cols-[1fr_280px] gap-8 mb-12 items-start">
+        <div>
 
       {/* ─── Latest articles ─── */}
       <div className="flex items-center justify-between mb-6">
@@ -106,6 +112,16 @@ export default async function HomePage() {
           ))}
         </div>
       )}
+
+        </div>{/* end articles column */}
+
+        {/* Trending sidebar */}
+        <aside>
+          <Suspense fallback={null}>
+            <TrendingStocks days={7} limit={8} />
+          </Suspense>
+        </aside>
+      </div>{/* end grid */}
 
       {/* ─── Bottom CTA — urgency + benefit ─── */}
       {articles.length > 0 && (

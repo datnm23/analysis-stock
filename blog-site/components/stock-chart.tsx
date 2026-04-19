@@ -64,7 +64,7 @@ export function StockChart({ symbol, days = 90 }: { symbol: string; days?: numbe
 
     async function init() {
       try {
-        const res = await fetch(`${API_URL}/api/v1/chart/${normalizedSymbol}?days=${days + 30}`);
+        const res = await fetch(`${API_URL}/api/v1/chart/${normalizedSymbol}?days=${days + 60}`);
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const json = await res.json();
         const bars: Bar[] = json.bars || [];
@@ -139,7 +139,15 @@ export function StockChart({ symbol, days = 90 }: { symbol: string; days?: numbe
           });
         });
 
-        chart.timeScale().fitContent();
+        // Show only the requested `days` range so SMA lines cover the full visible area
+        if (bars.length >= days) {
+          chart.timeScale().setVisibleRange({
+            from: bars[bars.length - days].time as import("lightweight-charts").Time,
+            to: bars[bars.length - 1].time as import("lightweight-charts").Time,
+          });
+        } else {
+          chart.timeScale().fitContent();
+        }
         setLoading(false);
       } catch (e: unknown) {
         if (!destroyed) setError(e instanceof Error ? e.message : "Unknown error");

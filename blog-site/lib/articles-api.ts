@@ -23,13 +23,20 @@ export interface ArticleListResult {
 
 export async function getArticles(
   limit = 20,
-  offset = 0
+  offset = 0,
+  filters?: { q?: string; recommendation?: string }
 ): Promise<ArticleListResult> {
   try {
-    const res = await fetch(
-      `${API_URL}/api/v1/articles?status=published&limit=${limit}&offset=${offset}`,
-      { next: { revalidate: 60 } }
-    );
+    const params = new URLSearchParams({
+      status: "published",
+      limit: String(limit),
+      offset: String(offset),
+    });
+    if (filters?.q) params.set("q", filters.q);
+    if (filters?.recommendation) params.set("recommendation", filters.recommendation);
+    const res = await fetch(`${API_URL}/api/v1/articles?${params}`, {
+      next: { revalidate: 60 },
+    });
     if (!res.ok) return { articles: [], total: 0, limit, offset };
     return res.json();
   } catch {
@@ -52,4 +59,40 @@ export async function getArticleBySlug(slug: string): Promise<Article | null> {
 export async function getLatestArticles(limit = 6): Promise<Article[]> {
   const { articles } = await getArticles(limit, 0);
   return articles;
+}
+
+export async function getArticlesBySymbol(
+  symbol: string,
+  limit = 20,
+  offset = 0
+): Promise<ArticleListResult> {
+  try {
+    const params = new URLSearchParams({
+      status: "published",
+      symbol: symbol.toUpperCase(),
+      limit: String(limit),
+      offset: String(offset),
+    });
+    const res = await fetch(`${API_URL}/api/v1/articles?${params}`, {
+      next: { revalidate: 60 },
+    });
+    if (!res.ok) return { articles: [], total: 0, limit, offset };
+    return res.json();
+  } catch {
+    return { articles: [], total: 0, limit, offset };
+  }
+}
+
+export async function getRelatedArticles(slug: string, symbol: string, limit = 3): Promise<Article[]> {
+  try {
+    const res = await fetch(
+      `${API_URL}/api/v1/articles/${slug}/related?symbol=${symbol}&limit=${limit}`,
+      { next: { revalidate: 60 } }
+    );
+    if (!res.ok) return [];
+    const json = await res.json();
+    return json.articles ?? [];
+  } catch {
+    return [];
+  }
 }

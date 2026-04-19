@@ -41,7 +41,7 @@ type ArticleListResult struct {
 	Offset   int              `json:"offset"`
 }
 
-func (s *ArticleService) List(status, symbol string, limit, offset int) (*ArticleListResult, error) {
+func (s *ArticleService) List(status, symbol, search string, limit, offset int) (*ArticleListResult, error) {
 	var articles []models.Article
 	var total int64
 
@@ -52,12 +52,25 @@ func (s *ArticleService) List(status, symbol string, limit, offset int) (*Articl
 	if symbol != "" {
 		q = q.Where("symbol = ?", symbol)
 	}
+	if search != "" {
+		like := "%" + search + "%"
+		q = q.Where("symbol ILIKE ? OR title ILIKE ?", like, like)
+	}
 	q.Count(&total)
 	err := q.Order("created_at DESC").Limit(limit).Offset(offset).Find(&articles).Error
 	if err != nil {
 		return nil, err
 	}
 	return &ArticleListResult{Articles: articles, Total: total, Limit: limit, Offset: offset}, nil
+}
+
+func (s *ArticleService) GetRelated(slug, symbol string, limit int) ([]models.Article, error) {
+	var articles []models.Article
+	err := s.db.Where("symbol = ? AND slug != ? AND status = ?", symbol, slug, models.ArticleStatusPublished).
+		Order("published_at DESC").
+		Limit(limit).
+		Find(&articles).Error
+	return articles, err
 }
 
 func (s *ArticleService) GetBySlug(slug string) (*models.Article, error) {

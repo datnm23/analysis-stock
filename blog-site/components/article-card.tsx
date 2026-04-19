@@ -1,3 +1,5 @@
+"use client";
+
 import Image from "next/image";
 import Link from "next/link";
 import { Article } from "@/lib/articles-api";
@@ -58,7 +60,7 @@ export function ArticleCard({ article }: { article: Article }) {
         <div className="p-5 flex flex-col flex-1 gap-3">
           {/* Badges row */}
           <div className="flex items-center gap-2 flex-wrap">
-            <span className="badge-symbol">{article.symbol}</span>
+            <Link href={`/symbols/${article.symbol}`} onClick={(e) => e.stopPropagation()} className="badge-symbol hover:opacity-70 transition-opacity">{article.symbol}</Link>
             {rec && (
               <span className={REC_BADGE[rec] ?? "badge-hold"}>
                 {REC_LABEL[rec] ?? rec}

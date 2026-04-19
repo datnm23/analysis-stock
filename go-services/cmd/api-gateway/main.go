@@ -117,9 +117,14 @@ func main() {
 
 		// Articles (blog)
 		v1.GET("/articles", handlers.ListArticles(articleSvc))
+		v1.GET("/articles/:slug/related", handlers.RelatedArticles(articleSvc))
 		v1.GET("/articles/:slug", handlers.GetArticleBySlug(articleSvc))
 		v1.POST("/articles", handlers.CreateArticle(articleSvc, internalKey))
 		v1.PATCH("/articles/:id/status", handlers.UpdateArticleStatus(articleSvc, internalKey))
+
+		// Trending + Screener
+		v1.GET("/trending", handlers.TrendingArticles(articleSvc))
+		v1.GET("/screener", handlers.ScreenerHandler(articleSvc))
 	}
 
 	// Legacy routes (n8n compatibility)

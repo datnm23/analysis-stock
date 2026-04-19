@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import "./globals.css";
+import { NewsletterForm } from "@/components/newsletter-form";
 
 export const metadata: Metadata = {
   title: "VietStock AI – Phân tích chứng khoán Việt Nam",
@@ -37,6 +38,12 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
               >
                 Bài viết
               </a>
+              <a
+                href="/screener"
+                className="text-white/70 hover:text-yellow font-semibold text-sm px-3 py-1.5 uppercase tracking-wide transition-colors duration-100"
+              >
+                Screener
+              </a>
             </div>
           </nav>
         </header>
@@ -56,9 +63,8 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
                 Không phải lời khuyên đầu tư.
               </p>
             </div>
-            <div className="text-right">
-              <p className="text-white/30 text-xs">HSX · HNX · UPCOM</p>
-              <p className="text-white/30 text-xs mt-0.5">Powered by Claude AI · KB Securities</p>
+            <div className="mt-6 md:mt-0 md:max-w-xs w-full">
+              <NewsletterForm variant="footer" />
             </div>
           </div>
         </footer>
