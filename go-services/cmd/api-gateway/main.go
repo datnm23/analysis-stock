@@ -50,6 +50,7 @@ func main() {
 	}
 
 	// Initialize services
+	marketURL := cfg.Services.MarketURL
 	marketClient := vnstock.NewClientWithConfig(cfg.Services.VnStockBaseURL, 30*time.Second)
 	technicalSvc := services.NewTechnicalService(infra.DB, infra.Redis, marketClient)
 	sentimentClient := services.NewSentimentClient(cfg.Services.SentimentURL)
@@ -75,6 +76,7 @@ func main() {
 
 	r := gin.New()
 	r.Use(gin.Recovery())
+	r.Use(middleware.CORS())
 	r.Use(otelgin.Middleware(cfg.Telemetry.ServiceName))
 	r.Use(middleware.CorrelationID())
 	r.Use(middleware.PrometheusMetrics())
@@ -111,6 +113,10 @@ func main() {
 			v1.POST("/analysis/queue", handlers.EnqueueAnalysis(jobQueue))
 			v1.GET("/analysis/status/:id", handlers.AnalysisStatus(jobQueue))
 		}
+
+		// Market overview (indices + price board)
+		v1.GET("/market/indices", handlers.MarketIndices())
+		v1.GET("/market/board",   handlers.MarketBoard(marketURL, infra.Redis))
 
 		// Chart OHLCV data
 		v1.GET("/chart/:symbol", handlers.ChartData())

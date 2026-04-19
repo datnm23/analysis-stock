@@ -1,147 +1,107 @@
-import Link from "next/link";
 import { Suspense } from "react";
+import Link from "next/link";
 import { getLatestArticles } from "@/lib/articles-api";
 import { ArticleCard } from "@/components/article-card";
 import { TrendingStocks } from "@/components/trending-stocks";
+import { MarketIndexBar } from "@/components/market-index-bar";
+import { MarketBoardTable } from "@/components/market-board-table";
 
 export const revalidate = 60;
 
 export default async function HomePage() {
-  const articles = await getLatestArticles(6);
+  const articles = await getLatestArticles(4);
 
   return (
-    <div>
-      {/* ─── Hero — PAS formula ─── */}
-      <div className="border-3 border-ink bg-cream shadow-brutal-xl mb-12 overflow-hidden">
-        <div className="grid md:grid-cols-[1fr_auto] gap-0">
+    <div className="space-y-8">
 
-          {/* Left: PAS copy */}
-          <div className="p-8 md:p-12 border-r-0 md:border-r-3 md:border-ink">
-            {/* [P] Problem hook */}
-            <div className="inline-block bg-ink text-yellow text-xs font-black px-3 py-1 uppercase tracking-widest mb-6">
-              Đọc báo cáo môi giới xong vẫn không biết mua gì?
-            </div>
+      {/* ─── Index bar (client, polls every 60s) ─── */}
+      <MarketIndexBar />
 
-            {/* [A] Agitate → [S] Solution headline — 4Us: Urgent+Unique+Useful+Ultra-specific */}
-            <h1 className="text-4xl md:text-5xl font-black text-ink leading-[1.05] uppercase tracking-tight mb-5">
-              Chúng tôi quét<br />
-              <span className="text-yellow bg-ink px-2">hàng chục nguồn</span><br />
-              — cho bạn 1 kết luận
-            </h1>
+      {/* ─── Market price board ─── */}
+      <section>
+        <div className="flex items-center justify-between mb-4">
+          <h1 className="text-xl font-black uppercase tracking-tight text-ink border-b-3 border-yellow pb-1">
+            Bảng giá thị trường
+          </h1>
+          <div className="flex items-center gap-2">
+            <Link
+              href="/market"
+              className="btn-brutal bg-ink text-yellow text-xs font-black px-3 py-1.5 uppercase tracking-widest"
+            >
+              Biểu đồ →
+            </Link>
+            <Link
+              href="/screener"
+              className="btn-brutal bg-yellow text-ink text-xs font-black px-3 py-1.5 uppercase tracking-widest"
+            >
+              AI Screener →
+            </Link>
+          </div>
+        </div>
+        <MarketBoardTable />
+      </section>
 
-            {/* Solution promise */}
-            <p className="text-ink/70 text-base max-w-md leading-relaxed mb-8">
-              Mỗi ngày AI tổng hợp dữ liệu kỹ thuật, sentiment tin tức và mô hình dự báo
-              để trả lời thẳng: cổ phiếu này nên <strong className="text-ink bg-[#05D98F] px-1">MUA</strong>,{" "}
-              <strong className="text-ink bg-[#FFD93D] px-1">GIỮ</strong> hay{" "}
-              <strong className="text-ink bg-[#FF4A4A] px-1">BÁN</strong>.
-            </p>
+      {/* ─── Trending + Latest articles ─── */}
+      <div className="grid grid-cols-1 lg:grid-cols-[1fr_260px] gap-8 items-start">
 
-            {/* CTA */}
+        {/* Latest articles */}
+        <section>
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-lg font-black uppercase tracking-tight text-ink border-b-3 border-yellow pb-1">
+              Phân tích mới nhất
+            </h2>
             <Link
               href="/articles"
-              className="btn-brutal inline-block bg-yellow text-ink font-black text-sm px-6 py-3 uppercase tracking-widest"
+              className="btn-brutal bg-ink text-yellow text-xs font-black px-3 py-1.5 uppercase tracking-widest"
             >
-              Xem phân tích hôm nay →
+              Xem tất cả →
             </Link>
           </div>
 
-          {/* Right: stat block — FAB micro-copy */}
-          <div className="bg-ink p-8 md:p-12 flex flex-col justify-center gap-6 min-w-[200px]">
-            {[
-              { label: "Sàn theo dõi", value: "HSX · HNX" },
-              { label: "Mô hình AI", value: "Claude AI" },
-              { label: "Tần suất", value: "Mỗi ngày" },
-            ].map(({ label, value }) => (
-              <div key={label}>
-                <p className="text-white/40 text-[11px] font-semibold uppercase tracking-widest mb-1">{label}</p>
-                <p className="text-yellow font-black text-lg">{value}</p>
-              </div>
-            ))}
-          </div>
-        </div>
-
-        {/* Ticker strip — urgency micro-copy */}
-        <div className="bg-yellow border-t-3 border-ink px-6 py-2 flex items-center gap-3 overflow-hidden">
-          <span className="text-ink font-black text-[11px] uppercase tracking-widest shrink-0">
-            ĐANG THEO DÕI:
-          </span>
-          <div className="flex gap-4 overflow-x-auto">
-            {["VNM", "HPG", "VCB", "BID", "SSI", "MSN", "FPT", "VIC", "TCB"].map((s) => (
-              <Link
-                key={s}
-                href={`/symbols/${s}`}
-                className="text-ink font-black text-xs shrink-0 hover:underline underline-offset-2"
-              >
-                {s}
-              </Link>
-            ))}
-          </div>
-        </div>
-      </div>
-
-      {/* ─── Trending + Latest grid ─── */}
-      <div className="grid grid-cols-1 lg:grid-cols-[1fr_280px] gap-8 mb-12 items-start">
-        <div>
-
-      {/* ─── Latest articles ─── */}
-      <div className="flex items-center justify-between mb-6">
-        {/* 4Us headline: Unique + Useful */}
-        <h2 className="text-2xl font-black text-ink uppercase tracking-tight border-b-3 border-yellow pb-1">
-          Phân tích mới nhất
-        </h2>
-        <Link
-          href="/articles"
-          className="btn-brutal bg-ink text-yellow text-xs font-black px-4 py-2 uppercase tracking-widest"
-        >
-          Xem tất cả →
-        </Link>
-      </div>
-
-      {articles.length === 0 ? (
-        <div className="border-3 border-ink bg-white py-16 text-center shadow-brutal">
-          <p className="font-black text-ink/30 text-xl uppercase tracking-widest mb-2">
-            Chưa có bài nào.
-          </p>
-          <p className="text-ink/40 text-sm">Quay lại sau — AI đang xử lý dữ liệu.</p>
-        </div>
-      ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {articles.map((a) => (
-            <ArticleCard key={a.id} article={a} />
-          ))}
-        </div>
-      )}
-
-        </div>{/* end articles column */}
+          {articles.length === 0 ? (
+            <div className="border-3 border-ink bg-white py-12 text-center shadow-brutal">
+              <p className="font-black text-ink/30 text-lg uppercase tracking-widest mb-1">
+                Chưa có bài nào.
+              </p>
+              <p className="text-ink/40 text-sm">AI đang xử lý — quay lại sau.</p>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+              {articles.map((a) => (
+                <ArticleCard key={a.id} article={a} />
+              ))}
+            </div>
+          )}
+        </section>
 
         {/* Trending sidebar */}
-        <aside>
+        <aside className="space-y-4">
           <Suspense fallback={null}>
             <TrendingStocks days={7} limit={8} />
           </Suspense>
-        </aside>
-      </div>{/* end grid */}
 
-      {/* ─── Bottom CTA — urgency + benefit ─── */}
-      {articles.length > 0 && (
-        <div className="mt-12 border-3 border-ink bg-yellow p-6 flex flex-col sm:flex-row items-center justify-between gap-4 shadow-brutal">
-          <div>
-            <p className="font-black text-ink text-xl uppercase tracking-tight">
-              Không bỏ lỡ bất kỳ cơ hội nào.
-            </p>
-            <p className="text-ink/60 text-sm mt-1">
-              Phân tích kỹ thuật + AI — cập nhật mỗi ngày giao dịch.
-            </p>
+          {/* Quick links */}
+          <div className="border-3 border-ink bg-ink p-4 shadow-brutal">
+            <p className="text-yellow font-black text-xs uppercase tracking-widest mb-3">Công cụ phân tích</p>
+            <div className="flex flex-col gap-2">
+              {[
+                { href: "/market",   label: "📊 Biểu đồ chỉ số" },
+                { href: "/screener", label: "🤖 AI Screener" },
+                { href: "/articles", label: "📰 Bài phân tích" },
+              ].map(({ href, label }) => (
+                <Link
+                  key={href}
+                  href={href}
+                  className="text-white/70 hover:text-yellow text-sm font-semibold transition-colors py-0.5"
+                >
+                  {label}
+                </Link>
+              ))}
+            </div>
           </div>
-          <Link
-            href="/articles"
-            className="btn-brutal bg-ink text-yellow font-black px-6 py-3 uppercase text-sm tracking-widest shrink-0"
-          >
-            Đọc toàn bộ →
-          </Link>
-        </div>
-      )}
+        </aside>
+      </div>
+
     </div>
   );
 }

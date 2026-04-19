@@ -39,6 +39,12 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
                 Bài viết
               </a>
               <a
+                href="/market"
+                className="text-white/70 hover:text-yellow font-semibold text-sm px-3 py-1.5 uppercase tracking-wide transition-colors duration-100"
+              >
+                Thị trường
+              </a>
+              <a
                 href="/screener"
                 className="text-white/70 hover:text-yellow font-semibold text-sm px-3 py-1.5 uppercase tracking-wide transition-colors duration-100"
               >

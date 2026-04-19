@@ -103,9 +103,10 @@ def create_app() -> FastAPI:
     )
 
     # Routers
-    from app.routers import scrape, health
+    from app.routers import scrape, health, market
     app.include_router(scrape.router)
     app.include_router(health.router)
+    app.include_router(market.router)
 
     return app
 

@@ -73,6 +73,7 @@ type ServicesConfig struct {
 	SentimentURL   string
 	ForecastURL    string
 	VnStockBaseURL string
+	MarketURL      string // crawl-agent price board service
 }
 
 func Load() *Config {
@@ -111,6 +112,7 @@ func Load() *Config {
 			SentimentURL:   getEnv("SENTIMENT_SERVICE_URL", "http://localhost:8000"),
 			ForecastURL:    getEnv("FORECAST_SERVICE_URL", "http://localhost:8082"),
 			VnStockBaseURL: getEnv("VNSTOCK_BASE_URL", "https://kbbuddywts.kbsec.com.vn/iis-server/investment/stocks"),
+			MarketURL:      getEnv("MARKET_SERVICE_URL", "http://localhost:8085"),
 		},
 		Auth: AuthConfig{
 			JWTSecretKey:       getEnv("JWT_SECRET_KEY", ""),
