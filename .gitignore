@@ -69,3 +69,11 @@ logs/
 postgres-data/
 redis-data/
 minio-data/
+
+# Claude Code
+.fuse_hidden*
+.claude/commands/
+
+# IDE
+claude-kit-source/
+guide/

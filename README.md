@@ -32,6 +32,15 @@ Hệ thống phân tích chứng khoán tự động sử dụng AI Agents, n8n 
 - Web dashboard với live updates
 - Custom alerts theo tiêu chí người dùng
 
+### 📝 Blog & Content Platform
+
+- **Blog Site** (Next.js 14) - Nội dung phân tích chứng khoán
+- **Market Board** - Bảng giá real-time VN30/HNX30/UPCOM
+- **Stock Screener** - Lọc cổ phiếu theo tiêu chí
+- **Symbol Pages** - Trang chi tiết từng mã cổ phiếu
+- **Newsletter** - Đăng ký nhận tin hàng ngày
+- **AI-Powered** - Nội dung được tạo bởi Claude AI
+
 ## 🏗️ Kiến Trúc Hệ Thống
 
 ```
@@ -138,6 +147,29 @@ python scripts/init_s3_structure.py
 ```
 
 ## 📖 Sử Dụng
+
+### 0. Blog & Market Dashboard
+
+**Start Frontend:**
+```bash
+cd blog-site
+npm install
+npm run dev
+```
+
+**Access:**
+- Homepage: http://localhost:3000
+- Market Data: http://localhost:3000/market
+- Articles: http://localhost:3000/articles
+- Screener: http://localhost:3000/screener
+- Symbol: http://localhost:3000/symbols/VNM
+
+**Features:**
+- Real-time VN30/HNX30/UPCOM index
+- Live market price board
+- AI-powered stock analysis
+- Interactive TradingView charts
+- Newsletter subscription
 
 ### 1. Phân Tích Một Mã Cổ Phiếu
 
